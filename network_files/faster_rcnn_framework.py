@@ -353,3 +353,4 @@ class FasterRCNN(FasterRCNNBase):
         transform = GeneralizedRCNNTransform(min_size, max_size, image_mean, image_std)
 
         super(FasterRCNN, self).__init__(backbone, rpn, roi_heads, transform)
+
