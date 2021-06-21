@@ -72,7 +72,7 @@ def train_one_epoch(model, optimizer, data_loader, meta_loader, device, epoch,
 
 
 @torch.no_grad()
-def evaluate(model, data_loader, device):
+def evaluate(model, data_loader, meta_loader, device):
     n_threads = torch.get_num_threads()
     # FIXME remove this and make paste_masks_in_image run on the GPU
     torch.set_num_threads(1)
@@ -84,16 +84,23 @@ def evaluate(model, data_loader, device):
     coco = get_coco_api_from_dataset(data_loader.dataset)
     iou_types = _get_iou_types(model)
     coco_evaluator = CocoEvaluator(coco, iou_types)
-
+    meta_iter = iter(meta_loader)
     for image, targets in metric_logger.log_every(data_loader, 100, header):
-        image = list(img.to(device) for img in image)
+        prndata, prncls, prntar = next(meta_iter)
+        #images: b*3*W*H
+        #prnims: n*3*W*H
+        images = list(img.to(device) for img in image)
+        prnims = list(Variable(prnim.squeeze(0)).to(device) for prnim in prndata)
+        prntar = [{k: v.to(device) for k, v in t.items()} for t in prntar]
 
+        images.append(prnims)
+        prntar=[prntar]
         # 当使用CPU时，跳过GPU相关指令
         if device != torch.device("cpu"):
             torch.cuda.synchronize(device)
 
         model_time = time.time()
-        outputs = model(image)
+        outputs = model(images,prntar)
 
         outputs = [{k: v.to(cpu_device) for k, v in t.items()} for t in outputs]
         model_time = time.time() - model_time

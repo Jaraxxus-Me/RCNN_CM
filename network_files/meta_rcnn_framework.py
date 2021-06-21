@@ -85,7 +85,10 @@ class MetaRCNNBase(nn.Module):
         prn_data = images[-1]
         prn_target = targets[-1]
         ims = images[0:-1]
-        tars = targets[0:-1]
+        if len(targets)==1:# val/test stage, no data target, just meta target
+            tars=None
+        else:
+            tars = targets[0:-1]
 
         images, targets = self.transform(ims, tars)  # 对query图像进行预处理
         prn_data, prn_target = self.transform(prn_data, prn_target)  # 对support图像进行预处理
@@ -194,7 +197,7 @@ class FindPredictor(nn.Module):
         meta_score = self.cls_score(y)
         data_score = self.cls_score(x)
         cos_sim = self.cos_score(x,y)
-        cos_score=torch.zeros_like(data_score)
+        cos_score=torch.ones_like(data_score)
         cos_score[:,1:]=cos_sim
         scores=[data_score,meta_score,cos_score]
         bbox_deltas = self.bbox_pred(x)

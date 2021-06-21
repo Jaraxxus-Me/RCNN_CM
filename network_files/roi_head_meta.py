@@ -32,40 +32,43 @@ def fastrcnn_loss(class_logits, box_regression, labels, regression_targets):
     # labels filter: <16
     labels = torch.cat(labels, dim=0)
     proper_ind=torch.where(torch.lt(labels,data_classlo.size()[1]))[0]
+    # filter proposals in logits
     data_classlo_=data_classlo[proper_ind]
     cos_lo_=cos_lo[proper_ind]
     labels_=labels[proper_ind]
-    #meta label
-    meta_label = Tensor(range(0,16))
-
+    box_regression_ = box_regression[proper_ind]
+    # meta label
+    meta_label = Tensor(range(1,num_classes)).to(labels_.device).type(labels_.dtype)
+    # filter regression targets
     regression_targets = torch.cat(regression_targets, dim=0)
+    regression_targets_ = regression_targets[proper_ind]
     # 计算类别损失信息
-    classification_loss_data = F.cross_entropy(data_classlo_, labels)
-    classification_loss_meta = F.cross_entropy(labels_, meta_label)
+    classification_loss_data = F.cross_entropy(data_classlo_, labels_)
+    classification_loss_meta = F.cross_entropy(meta_classlo, meta_label)
     log_soft_out = torch.log(cos_lo_)
-    classification_loss_cos = F.nll_loss(log_soft_out, labels)
+    classification_loss_cos = F.nll_loss(log_soft_out, labels_)
 
-    classification_loss=classification_loss_data+classification_loss_meta+10*classification_loss_cos
+    classification_loss=classification_loss_data+classification_loss_meta+100*classification_loss_cos
 
     # get indices that correspond to the regression targets for
     # the corresponding ground truth labels, to be used with
     # advanced indexing
     # 返回标签类别大于0的索引
     # sampled_pos_inds_subset = torch.nonzero(torch.gt(labels, 0)).squeeze(1)
-    sampled_pos_inds_subset = torch.where(torch.gt(labels, 0))[0]
+    sampled_pos_inds_subset = torch.where(torch.gt(labels_, 0))[0]
 
     # 返回标签类别大于0位置的类别信息
     labels_pos = labels[sampled_pos_inds_subset]
 
     # shape=[num_proposal, num_classes]
-    N, num_classes = data_classlo.shape
-    box_regression = box_regression.reshape(N, -1, 4)
+    N, num_classes = data_classlo_.shape
+    box_regression_ = box_regression_.reshape(N, -1, 4)
 
     # 计算边界框损失信息
     box_loss = det_utils.smooth_l1_loss(
         # 获取指定索引proposal的指定类别box信息
-        box_regression[sampled_pos_inds_subset, labels_pos],
-        regression_targets[sampled_pos_inds_subset],
+        box_regression_[sampled_pos_inds_subset, labels_pos],
+        regression_targets_[sampled_pos_inds_subset],
         beta=1 / 9,
         size_average=False,
     ) / labels.numel()
@@ -271,7 +274,7 @@ class RoIHeads(torch.nn.Module):
         return proposals, labels, regression_targets
 
     def postprocess_detections(self,
-                               class_logits,    # type: Tensor
+                               class_logits,    # type: List[Tensor]
                                box_regression,  # type: Tensor
                                proposals,       # type: List[Tensor]
                                image_shapes     # type: List[Tuple[int, int]]
@@ -288,7 +291,7 @@ class RoIHeads(torch.nn.Module):
         （7）执行nms处理，并按scores进行排序
         （8）根据scores排序返回前topk个目标
         Args:
-            class_logits: 网络预测类别概率信息
+            class_logits : [dataloss,metaloss,cosloss] 预测类别概率信息，shape=[num_anchors, num_classes]
             box_regression: 网络预测的边界框回归参数
             proposals: rpn输出的proposal
             image_shapes: 打包成batch前每张图像的宽高
@@ -296,18 +299,21 @@ class RoIHeads(torch.nn.Module):
         Returns:
 
         """
-        device = class_logits.device
+        data_logits = class_logits[0]
+        cos_simi = class_logits[-1]
+
+        device = data_logits.device
         # 预测目标类别数
-        num_classes = class_logits.shape[-1]
+        num_classes = data_logits.shape[-1]
 
         # 获取每张图像的预测bbox数量
         boxes_per_image = [boxes_in_image.shape[0] for boxes_in_image in proposals]
         # 根据proposal以及预测的回归参数计算出最终bbox坐标
         pred_boxes = self.box_coder.decode(box_regression, proposals)
 
-        # 对预测类别结果进行softmax处理
-        pred_scores = F.softmax(class_logits, -1)
-
+        # 对预测类别结果进行softmax处理 and fuse cos_sim and linear cls output
+        pred_scores = F.softmax(data_logits, -1)
+        pred_scores = 0.5*pred_scores + 0.5*cos_simi
         # split boxes and scores per image
         # 根据每张图像的预测bbox数量分割结果
         pred_boxes_list = pred_boxes.split(boxes_per_image, 0)

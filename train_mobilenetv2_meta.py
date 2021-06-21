@@ -189,7 +189,7 @@ def main(parser_data):
     num_epochs = 20
     for epoch in range(init_epochs, num_epochs+init_epochs, 1):
         # train for one epoch, printing every 50 iterations
-        mean_loss, lr = utils.train_one_epoch(model, optimizer, train_data_loader,
+        mean_loss, lr = utils.train_one_epoch(model, optimizer, train_data_loader, metaloader,
                                               device, epoch, print_freq=50)
         train_loss.append(mean_loss.item())
         learning_rate.append(lr)
@@ -198,7 +198,7 @@ def main(parser_data):
         lr_scheduler.step()
 
         # evaluate on the test dataset
-        coco_info = utils.evaluate(model, val_data_set_loader, device=device)
+        coco_info = utils.evaluate(model, val_data_set_loader, metaloader, device=device)
 
         # write into txt
         with open(results_file, "a") as f:
@@ -264,7 +264,7 @@ if __name__ == "__main__":
     parser.add_argument('--meta_train', default=True, type=bool,
                         help='is doing meta training/fine tuning?')
     # 训练的batch size
-    parser.add_argument('--bs', default=2, type=int, metavar='N',
+    parser.add_argument('--bs', default=1, type=int, metavar='N',
                         help='batch size when training.')
 
     args = parser.parse_args()
