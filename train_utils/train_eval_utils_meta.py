@@ -26,8 +26,13 @@ def train_one_epoch(model, optimizer, data_loader, meta_loader, device, epoch,
     mloss = torch.zeros(1).to(device)  # mean losses
     enable_amp = True if "cuda" in device.type else False
     meta_iter = iter(meta_loader)
+    n=0
     for i, [images, targets] in enumerate(metric_logger.log_every(data_loader, print_freq, header)):
-        prndata, prncls, prntar = next(meta_iter)
+        try:
+            prndata, prncls, prntar = next(meta_iter)
+        except:
+            meta_iter = iter(meta_loader)
+            prndata, prncls, prntar = next(meta_iter)
         #images: b*3*W*H
         #prnims: n*3*W*H
         images = list(image.to(device) for image in images)
@@ -41,7 +46,7 @@ def train_one_epoch(model, optimizer, data_loader, meta_loader, device, epoch,
         # 混合精度训练上下文管理器，如果在CPU环境中不起任何作用
         with torch.cuda.amp.autocast(enabled=enable_amp):
             loss_dict = model(images, targets)
-
+            n+=1
             losses = sum(loss for loss in loss_dict.values())
 
             # reduce losses over all GPUs for logging purpose

@@ -58,8 +58,10 @@ def fastrcnn_loss(class_logits, box_regression, labels, regression_targets):
     sampled_pos_inds_subset = torch.where(torch.gt(labels_, 0))[0]
 
     # 返回标签类别大于0位置的类别信息
-    labels_pos = labels[sampled_pos_inds_subset]
-
+    labels_pos = labels_[sampled_pos_inds_subset]
+    if len(labels_pos) == 0:
+        box_loss=Tensor([0]).to(labels_.device)
+        return classification_loss, box_loss
     # shape=[num_proposal, num_classes]
     N, num_classes = data_classlo_.shape
     box_regression_ = box_regression_.reshape(N, -1, 4)
@@ -71,7 +73,7 @@ def fastrcnn_loss(class_logits, box_regression, labels, regression_targets):
         regression_targets_[sampled_pos_inds_subset],
         beta=1 / 9,
         size_average=False,
-    ) / labels.numel()
+    ) / labels_.numel()
 
     return classification_loss, box_loss
 
