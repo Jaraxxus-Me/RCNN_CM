@@ -47,8 +47,12 @@ def fastrcnn_loss(class_logits, box_regression, labels, regression_targets):
     classification_loss_meta = F.cross_entropy(meta_classlo, meta_label)
     log_soft_out = torch.log(cos_lo_)
     classification_loss_cos = F.nll_loss(log_soft_out, labels_)
-
-    classification_loss=classification_loss_data+classification_loss_meta+100*classification_loss_cos
+    if labels_.max()==0:
+        box_loss=Tensor([0]).to(labels_.device)
+        classification_loss = classification_loss_meta
+        return classification_loss, box_loss
+    else:
+        classification_loss=classification_loss_data+classification_loss_meta+10*classification_loss_cos
 
     # get indices that correspond to the regression targets for
     # the corresponding ground truth labels, to be used with
@@ -59,9 +63,9 @@ def fastrcnn_loss(class_logits, box_regression, labels, regression_targets):
 
     # 返回标签类别大于0位置的类别信息
     labels_pos = labels_[sampled_pos_inds_subset]
-    if len(labels_pos) == 0:
-        box_loss=Tensor([0]).to(labels_.device)
-        return classification_loss, box_loss
+    # if len(labels_pos) == 0:
+    #     box_loss=Tensor([0]).to(labels_.device)
+    #     return classification_loss, box_loss
     # shape=[num_proposal, num_classes]
     N, num_classes = data_classlo_.shape
     box_regression_ = box_regression_.reshape(N, -1, 4)

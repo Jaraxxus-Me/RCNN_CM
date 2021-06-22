@@ -91,7 +91,11 @@ def evaluate(model, data_loader, meta_loader, device):
     coco_evaluator = CocoEvaluator(coco, iou_types)
     meta_iter = iter(meta_loader)
     for image, targets in metric_logger.log_every(data_loader, 100, header):
-        prndata, prncls, prntar = next(meta_iter)
+        try:
+            prndata, prncls, prntar = next(meta_iter)
+        except:
+            meta_iter = iter(meta_loader)
+            prndata, prncls, prntar = next(meta_iter)
         #images: b*3*W*H
         #prnims: n*3*W*H
         images = list(img.to(device) for img in image)
