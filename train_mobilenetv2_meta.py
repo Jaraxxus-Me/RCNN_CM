@@ -186,8 +186,16 @@ def main(args):
     lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer,
                                                    step_size=3,
                                                    gamma=0.33)
-    num_epochs = 20
-    for epoch in range(init_epochs, num_epochs+init_epochs, 1):
+        # 如果指定了上次训练保存的权重文件地址，则接着上次结果接着训练
+    if args.resume != "":
+        checkpoint = torch.load(args.resume, map_location=device)
+        model.load_state_dict(checkpoint['model'])
+        optimizer.load_state_dict(checkpoint['optimizer'])
+        lr_scheduler.load_state_dict(checkpoint['lr_scheduler'])
+        args.start_epoch = checkpoint['epoch'] + 1
+        print("the training process from epoch{}...".format(args.start_epoch))
+
+    for epoch in range(args.start_epoch, args.epochs+init_epochs):
         # train for one epoch, printing every 50 iterations
         mean_loss, lr = utils.train_one_epoch(model, optimizer, train_data_loader, metaloader,
                                               device, epoch, print_freq=50)
@@ -211,7 +219,7 @@ def main(args):
 
         # save weights
         # 仅保存最后5个epoch的权重
-        if epoch in range(num_epochs+init_epochs)[-5:]:
+        if epoch in range(args.epochs+init_epochs)[-5:]:
             save_files = {
                 'model': model.state_dict(),
                 'optimizer': optimizer.state_dict(),
