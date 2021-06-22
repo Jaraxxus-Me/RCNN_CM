@@ -60,7 +60,7 @@ def main(args):
     # load dataset
     if args.phase == 1:
         # First phase only use the base classes, each class has 200 class data
-        shots = 2
+        shots = 200
         
         if args.meta_type == 1:  #  use the first sets of base classes
             metaclass = cfg.TRAIN.BASECLASSES_FIRST
@@ -144,26 +144,27 @@ def main(args):
                                 momentum=0.9, weight_decay=0.0005)
 
     init_epochs = 5
-    for epoch in range(init_epochs):
-        # train for one epoch, printing every 10 iterations
-        mean_loss, lr = utils.train_one_epoch(model, optimizer, train_data_loader, metaloader,
-                                              device, epoch, print_freq=50, warmup=True)
-        train_loss.append(mean_loss.item())
-        learning_rate.append(lr)
+    if args.resume=='':
+        for epoch in range(init_epochs):
+            # train for one epoch, printing every 10 iterations
+            mean_loss, lr = utils.train_one_epoch(model, optimizer, train_data_loader, metaloader,
+                                                device, epoch, print_freq=50, warmup=True)
+            train_loss.append(mean_loss.item())
+            learning_rate.append(lr)
 
-        # evaluate on the test dataset
-        coco_info = utils.evaluate(model, val_data_set_loader, metaloader, device=device)
+            # evaluate on the test dataset
+            coco_info = utils.evaluate(model, val_data_set_loader, metaloader, device=device)
 
-        # write into txt
-        with open(results_file, "a") as f:
-            # 写入的数据包括coco指标还有loss和learning rate
-            result_info = [str(round(i, 4)) for i in coco_info + [mean_loss.item()]] + [str(round(lr, 6))]
-            txt = "epoch:{} {}".format(epoch, '  '.join(result_info))
-            f.write(txt + "\n")
+            # write into txt
+            with open(results_file, "a") as f:
+                # 写入的数据包括coco指标还有loss和learning rate
+                result_info = [str(round(i, 4)) for i in coco_info + [mean_loss.item()]] + [str(round(lr, 6))]
+                txt = "epoch:{} {}".format(epoch, '  '.join(result_info))
+                f.write(txt + "\n")
 
-        val_map.append(coco_info[1])  # pascal mAP
+            val_map.append(coco_info[1])  # pascal mAP
 
-    torch.save(model.state_dict(), os.path.join(args.output_dir ,"pretrain.pth"))
+        torch.save(model.state_dict(), os.path.join(args.output_dir ,"pretrain.pth"))
 
     # # # # # # # # # # # # # # # # # # # # # # # # # # # #
     #  second unfrozen backbone and train all network     #
