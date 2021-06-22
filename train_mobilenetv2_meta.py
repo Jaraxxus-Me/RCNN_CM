@@ -163,9 +163,12 @@ def main(args):
                 f.write(txt + "\n")
 
             val_map.append(coco_info[1])  # pascal mAP
-
-        torch.save(model.state_dict(), os.path.join(args.output_dir ,"pretrain.pth"))
-
+                # save weights
+        save_files = {
+            'model': model.state_dict(),
+            'optimizer': optimizer.state_dict(),
+            'epoch': epoch}
+        torch.save(save_files, os.path.join(args.output_dir ,"pretrain.pth"))
     # # # # # # # # # # # # # # # # # # # # # # # # # # # #
     #  second unfrozen backbone and train all network     #
     #  解冻前置特征提取网络权重（backbone），接着训练整个网络权重  #
@@ -192,9 +195,10 @@ def main(args):
         checkpoint = torch.load(args.resume, map_location=device)
         model.load_state_dict(checkpoint['model'])
         optimizer.load_state_dict(checkpoint['optimizer'])
-        lr_scheduler.load_state_dict(checkpoint['lr_scheduler'])
         args.start_epoch = checkpoint['epoch'] + 1
         print("the training process from epoch{}...".format(args.start_epoch))
+    else:
+        args.start_epoch = init_epochs
 
     for epoch in range(args.start_epoch, args.epochs+init_epochs):
         # train for one epoch, printing every 50 iterations

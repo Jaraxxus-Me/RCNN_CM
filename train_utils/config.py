@@ -36,9 +36,9 @@ __C.TRAIN.ALLCLASSES_FIRST = ['aeroplane', 'bicycle', 'boat', 'bottle', 'car',
                               'person', 'pottedplant', 'sheep', 'train', 'tvmonitor',
                               'bird', 'bus', 'cow', 'motorbike', 'sofa']
 
-__C.TRAIN.BASECLASSES_FIRST = ['aeroplane', 'bicycle', 'boat', 'bottle', 'car']
-                               #'cat', 'chair', 'diningtable', 'dog', 'horse']
-                               #'person', 'pottedplant', 'sheep', 'train', 'tvmonitor']
+__C.TRAIN.BASECLASSES_FIRST = ['aeroplane', 'bicycle', 'boat', 'bottle', 'car',
+                               'cat', 'chair', 'diningtable', 'dog', 'horse',
+                               'person', 'pottedplant', 'sheep', 'train', 'tvmonitor']
 
 __C.TRAIN.ALLCLASSES_SECOND = ['bicycle', 'bird', 'boat', 'bus', 'car',
                                'cat', 'chair', 'diningtable', 'dog', 'motorbike',
