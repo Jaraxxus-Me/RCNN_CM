@@ -9,7 +9,11 @@
             "type": "python",
             "request": "launch",
             "program": "train_mobilenetv2_meta.py",
-            "console": "integratedTerminal"
+            "console": "integratedTerminal",
+            "args": [
+                "--data_path", "/home/li/CMU_RISS/FSDet/data"
+
+            ]
         }
     ]
 }

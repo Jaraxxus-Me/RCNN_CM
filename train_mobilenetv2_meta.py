@@ -38,7 +38,7 @@ def create_model(num_classes):
     return model
 
 
-def main(parser_data):
+def main(args):
     #config device
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     print("Using {} device training.".format(device.type))
@@ -52,7 +52,7 @@ def main(parser_data):
         "val": transforms.Compose([transforms.ToTensor()])
     }
 
-    VOC_root = "/home/li/CMU_RISS/FSDet/data"  # VOCdevkit
+    VOC_root = args.data_path  # VOCdevkit
     # check voc root
     if os.path.exists(os.path.join(VOC_root, "VOCdevkit")) is False:
         raise FileNotFoundError("VOCdevkit dose not in path:'{}'.".format(VOC_root))
@@ -88,6 +88,7 @@ def main(parser_data):
     train_data_set = VOCDataSet(VOC_root, allclass, data_transform["train"], "train.txt")
     # 注意这里的collate_fn是自定义的，因为读取的数据包括image和targets，不能直接使用默认的方法合成batch
     batch_size = args.bs
+    val_size = args.bs_v
     nw = min([os.cpu_count(), batch_size if batch_size > 1 else 0, 8])  # number of workers
     print('Using %g dataloader workers' % nw)
     train_data_loader = torch.utils.data.DataLoader(train_data_set,
@@ -100,14 +101,13 @@ def main(parser_data):
     # VOCdevkit -> VOC2012/2007 -> ImageSets -> Main -> val.txt
     val_data_set = VOCDataSet(VOC_root, allclass, data_transform["val"], "val.txt")
     val_data_set_loader = torch.utils.data.DataLoader(val_data_set,
-                                                      batch_size=batch_size,
+                                                      batch_size=val_size,
                                                       shuffle=False,
                                                       pin_memory=True,
                                                       num_workers=nw,
                                                       collate_fn=train_data_set.collate_fn)
 
     # construct the input dataset of cpro network
-    img_size = 224
     # meta training use data from voc2007+2012
     if args.phase == 1:
         img_set = [('2007', 'trainval'), ('2012', 'trainval')]
@@ -163,7 +163,7 @@ def main(parser_data):
 
         val_map.append(coco_info[1])  # pascal mAP
 
-    torch.save(model.state_dict(), "./save_weights/pretrain.pth")
+    torch.save(model.state_dict(), os.path.join(args.output_dir ,"pretrain.pth"))
 
     # # # # # # # # # # # # # # # # # # # # # # # # # # # #
     #  second unfrozen backbone and train all network     #
@@ -217,7 +217,7 @@ def main(parser_data):
                 'optimizer': optimizer.state_dict(),
                 'lr_scheduler': lr_scheduler.state_dict(),
                 'epoch': epoch}
-            torch.save(save_files, "./save_weights/mobile-model-{}.pth".format(epoch))
+            torch.save(save_files, os.path.join(args.output_dir,"mobile-model-{}.pth".format(epoch)))
 
     # plot loss and lr curve
     if len(train_loss) != 0 and len(learning_rate) != 0:
@@ -239,17 +239,15 @@ if __name__ == "__main__":
     # 训练设备类型
     parser.add_argument('--device', default='cuda:0', help='device')
     # 训练数据集的根目录(VOCdevkit)
-    parser.add_argument('--data-path', default='./', help='dataset')
-    # 检测目标类别数(不包含背景)
-    parser.add_argument('--num-classes', default=20, type=int, help='num_classes')
+    parser.add_argument('--data_path', default='./', help='dataset')
     # 文件保存地址
-    parser.add_argument('--output-dir', default='./save_weights', help='path where to save')
+    parser.add_argument('--output_dir', default='./save_weights', help='path where to save')
     # 若需要接着上次训练，则指定上次训练保存权重文件地址
     parser.add_argument('--resume', default='', type=str, help='resume from checkpoint')
     # 指定接着从哪个epoch数开始训练
     parser.add_argument('--start_epoch', default=0, type=int, help='start epoch')
     # 训练的总epoch数
-    parser.add_argument('--epochs', default=15, type=int, metavar='N',
+    parser.add_argument('--epochs', default=25, type=int, metavar='N',
                         help='number of total epochs to run')
     # traing phase (1/2)
     parser.add_argument('--phase', default=1, type=int,
@@ -265,6 +263,9 @@ if __name__ == "__main__":
                         help='is doing meta training/fine tuning?')
     # 训练的batch size
     parser.add_argument('--bs', default=1, type=int, metavar='N',
+                        help='batch size when training.')
+    # validation batch size
+    parser.add_argument('--bs_v', default=4, type=int, metavar='N',
                         help='batch size when training.')
 
     args = parser.parse_args()
