@@ -212,8 +212,8 @@ class VOCDataSet(Dataset):
         for xml_list_07 in self.xml_list_07:
             assert os.path.exists(xml_list_07), "not found '{}' file.".format(xml_list_07)
         
-        #merge xml_list
-        self.xml_list=self.xml_list_07+self.xml_list_12
+        #merge xml_list and filter classes
+        self.filer_data(self.xml_list_07+self.xml_list_12)
 
         # read class_indict
         # json_file = './pascal_voc_classes.json'
@@ -281,6 +281,25 @@ class VOCDataSet(Dataset):
             image, target = self.transforms(image, target)
 
         return image, target
+
+    def filer_data(self, xml_list):
+        self.xml_list = []
+        print("Before filtering: {:d} images".format(len(xml_list)))
+        for i in range(len(xml_list)):
+            xml = xml_list[i]
+            with open(xml) as fid:
+                xml_str = fid.read()
+            xml_e = etree.fromstring(xml_str)
+            data = self.parse_xml_to_dict(xml_e)["annotation"]
+            proper = True
+            for obj in data["object"]:
+                label = obj["name"]
+                if label not in self.allclass:
+                    proper = False
+            if proper:
+                self.xml_list.append(xml)
+        print("After filtering: {:d} images".format(len(self.xml_list)))
+        return
 
     def get_height_and_width(self, idx):
         # read xml

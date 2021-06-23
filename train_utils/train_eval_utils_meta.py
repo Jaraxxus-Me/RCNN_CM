@@ -10,7 +10,7 @@ import train_utils.distributed_utils as utils
 
 
 def train_one_epoch(model, optimizer, data_loader, meta_loader, device, epoch,
-                    print_freq=50, warmup=False):
+                    print_freq=50, warmup=False, cls_w=0.3):
     model.train()
     metric_logger = utils.MetricLogger(delimiter="  ")
     metric_logger.add_meter('lr', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
@@ -46,6 +46,8 @@ def train_one_epoch(model, optimizer, data_loader, meta_loader, device, epoch,
         # 混合精度训练上下文管理器，如果在CPU环境中不起任何作用
         with torch.cuda.amp.autocast(enabled=enable_amp):
             loss_dict = model(images, targets)
+            # reduce weight of cls loss
+            loss_dict["loss_classifier"]=cls_w*loss_dict["loss_classifier"]
             n+=1
             losses = sum(loss for loss in loss_dict.values())
 

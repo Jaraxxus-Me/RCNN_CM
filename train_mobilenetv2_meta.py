@@ -99,7 +99,7 @@ def main(args):
 
     # load validation data set
     # VOCdevkit -> VOC2012/2007 -> ImageSets -> Main -> val.txt
-    val_data_set = VOCDataSet(VOC_root, allclass, data_transform["val"], "val.txt")
+    val_data_set = VOCDataSet(VOC_root, metaclass, data_transform["val"], "val.txt")
     val_data_set_loader = torch.utils.data.DataLoader(val_data_set,
                                                       batch_size=val_size,
                                                       shuffle=False,
@@ -148,7 +148,7 @@ def main(args):
         for epoch in range(init_epochs):
             # train for one epoch, printing every 10 iterations
             mean_loss, lr = utils.train_one_epoch(model, optimizer, train_data_loader, metaloader,
-                                                device, epoch, print_freq=50, warmup=True)
+                                                device, epoch, print_freq=50, warmup=True, cls_w=args.cls)
             train_loss.append(mean_loss.item())
             learning_rate.append(lr)
 
@@ -203,7 +203,7 @@ def main(args):
     for epoch in range(args.start_epoch, args.epochs+init_epochs):
         # train for one epoch, printing every 50 iterations
         mean_loss, lr = utils.train_one_epoch(model, optimizer, train_data_loader, metaloader,
-                                              device, epoch, print_freq=50)
+                                              device, epoch, print_freq=50,cls_w=args.cls)
         train_loss.append(mean_loss.item())
         learning_rate.append(lr)
 
@@ -280,6 +280,10 @@ if __name__ == "__main__":
     # validation batch size
     parser.add_argument('--bs_v', default=4, type=int, metavar='N',
                         help='batch size when training.')
+    # weight of cls loss during training
+    parser.add_argument('--cls', default=0.3, type=int, metavar='N',
+                        help='weight of cls loss during training')
+
 
     args = parser.parse_args()
     print(args)

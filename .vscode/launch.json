@@ -8,12 +8,12 @@
             "name": "Python: 当前文件",
             "type": "python",
             "request": "launch",
-            "program": "train_mobilenetv2_meta.py",
+            "program": "train_mobilenetv2.py",
             "console": "integratedTerminal",
-            "args": [
-                "--data_path", "/home/li/CMU_RISS/FSDet/data"
-
-            ]
+            // "args": [
+            //     "--data_path", "/home/li/CMU_RISS/FSDet/data",
+            //     "--bs", "2",
+            // ]
         }
     ]
 }

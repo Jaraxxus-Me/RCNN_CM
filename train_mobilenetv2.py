@@ -7,7 +7,8 @@ import torchvision
 import transforms
 from network_files import FasterRCNN, AnchorsGenerator
 from backbone import MobileNetV2, vgg
-from my_dataset import VOC2012DataSet
+from my_dataset import VOCDataSet
+from train_utils.config import cfg
 from train_utils import train_eval_utils as utils
 
 
@@ -54,16 +55,18 @@ def main():
         "val": transforms.Compose([transforms.ToTensor()])
     }
 
-    VOC_root = "/home/li/CMU_RISS/VOCtrainval"  # VOCdevkit
+    VOC_root = "/home/li/CMU_RISS/FSDet/data"  # VOCdevkit
+    metaclass = cfg.TRAIN.BASECLASSES_FIRST
+    allclass = cfg.TRAIN.ALLCLASSES_FIRST
     # check voc root
     if os.path.exists(os.path.join(VOC_root, "VOCdevkit")) is False:
         raise FileNotFoundError("VOCdevkit dose not in path:'{}'.".format(VOC_root))
 
     # load train data set
     # VOCdevkit -> VOC2012 -> ImageSets -> Main -> train.txt
-    train_data_set = VOC2012DataSet(VOC_root, data_transform["train"], "train.txt")
+    train_data_set = VOCDataSet(VOC_root, allclass, data_transform["train"], "train.txt")
     # 注意这里的collate_fn是自定义的，因为读取的数据包括image和targets，不能直接使用默认的方法合成batch
-    batch_size = 8
+    batch_size = 2
     nw = min([os.cpu_count(), batch_size if batch_size > 1 else 0, 8])  # number of workers
     print('Using %g dataloader workers' % nw)
     train_data_loader = torch.utils.data.DataLoader(train_data_set,
@@ -74,16 +77,15 @@ def main():
 
     # load validation data set
     # VOCdevkit -> VOC2012 -> ImageSets -> Main -> val.txt
-    val_data_set = VOC2012DataSet(VOC_root, data_transform["val"], "val.txt")
+    val_data_set = VOCDataSet(VOC_root, metaclass, data_transform["val"], "val.txt")
     val_data_set_loader = torch.utils.data.DataLoader(val_data_set,
                                                       batch_size=batch_size,
                                                       shuffle=False,
                                                       pin_memory=True,
                                                       num_workers=nw,
                                                       collate_fn=train_data_set.collate_fn)
-
     # create model num_classes equal background + 20 classes
-    model = create_model(num_classes=21)
+    model = create_model(len(allclass)+1)
     # print(model)
 
     model.to(device)
