@@ -283,7 +283,7 @@ if __name__ == "__main__":
     parser.add_argument('--bs_v', default=4, type=int, metavar='N',
                         help='batch size when training.')
     # weight of cls loss during training
-    parser.add_argument('--cls', default=0.3, type=int, metavar='N',
+    parser.add_argument('--cls', default=0.3, type=float,
                         help='weight of cls loss during training')
 
 
