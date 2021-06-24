@@ -169,11 +169,15 @@ def main(args):
             'optimizer': optimizer.state_dict(),
             'epoch': epoch}
         torch.save(save_files, os.path.join(args.output_dir ,"pretrain.pth"))
+
+    if args.resume != "":
+        checkpoint = torch.load(args.resume, map_location=device)
+        model.load_state_dict(checkpoint['model'])
+
     # # # # # # # # # # # # # # # # # # # # # # # # # # # #
     #  second unfrozen backbone and train all network     #
     #  解冻前置特征提取网络权重（backbone），接着训练整个网络权重  #
-    # # # # # # # # # # # # # # # # # # # # # # # # # # # #
-
+    # # # # # # # # # # # # # # # # # # # # # # # # # # # # 
     # 冻结backbone部分底层权重
     for name, parameter in model.backbone.named_parameters():
         split_name = name.split(".")[0]
@@ -181,7 +185,6 @@ def main(args):
             parameter.requires_grad = False
         else:
             parameter.requires_grad = True
-
     # define optimizer
     params = [p for p in model.parameters() if p.requires_grad]
     optimizer = torch.optim.SGD(params, lr=0.005,
@@ -192,9 +195,8 @@ def main(args):
                                                    gamma=0.33)
         # 如果指定了上次训练保存的权重文件地址，则接着上次结果接着训练
     if args.resume != "":
-        checkpoint = torch.load(args.resume, map_location=device)
-        model.load_state_dict(checkpoint['model'])
         optimizer.load_state_dict(checkpoint['optimizer'])
+        lr_scheduler.load_state_dict(checkpoint['lr_scheduler'])
         args.start_epoch = checkpoint['epoch'] + 1
         print("the training process from epoch{}...".format(args.start_epoch))
     else:
