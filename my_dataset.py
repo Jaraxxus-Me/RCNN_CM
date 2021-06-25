@@ -230,24 +230,65 @@ class VOCDataSet(Dataset):
         self.filer_data(self.xml_list_07+self.xml_list_12)
         if "val" in txt_name:
             self.prepare_data(self.xml_list, False)
-            print("use VOC 2007+2012 val.txt, total images: {:d}".format(len(self.images)))
+            print("use VOC 2007+2012 val.txt, total images: {:d}".format(len(self.data["path"])))
         else:
             self.prepare_data(self.xml_list, True)
-            print("prepared VOC 2007+2012, total images: {:d}".format(len(self.images)))
+            print("prepared VOC 2007+2012, total images: {:d}".format(len(self.data["path"])))
 
     def __len__(self):
-        return len(self.images)
+        return len(self.data["path"])
 
     def __getitem__(self, idx):
-                # images and targets are already prpared, load
-        img_path = self.images[idx]["path"]
-        flip_ = self.images[idx]["flip"]
+                # read xml
+        xml_path = self.data["path"][idx]
+        fl = self.data["flip"][idx]
+        with open(xml_path) as fid:
+            xml_str = fid.read()
+        xml = etree.fromstring(xml_str)
+        data = self.parse_xml_to_dict(xml)["annotation"]
+        img_path = os.path.join(self.root, data["folder"], "JPEGImages", data["filename"])
         image = Image.open(img_path)
         if image.format != "JPEG":
             raise ValueError("Image '{}' format not JPEG".format(img_path))
-        target = self.targets[idx]
+
+        boxes = []
+        labels = []
+        iscrowd = []
+        assert "object" in data, "{} lack of object information.".format(xml_path)
+        for obj in data["object"]:
+            xmin = float(obj["bndbox"]["xmin"])
+            xmax = float(obj["bndbox"]["xmax"])
+            ymin = float(obj["bndbox"]["ymin"])
+            ymax = float(obj["bndbox"]["ymax"])
+
+            # 进一步检查数据，有的标注信息中可能有w或h为0的情况，这样的数据会导致计算回归loss为nan
+            if xmax <= xmin or ymax <= ymin:
+                print("Warning: in '{}' xml, there are some bbox w/h <=0".format(xml_path))
+                continue
+            
+            boxes.append([xmin, ymin, xmax, ymax])
+            labels.append(self.class_dict[obj["name"]])
+            if "difficult" in obj:
+                iscrowd.append(int(obj["difficult"]))
+            else:
+                iscrowd.append(0)
+
+        # convert everything into a torch.Tensor
+        boxes = torch.as_tensor(boxes, dtype=torch.float32)
+        labels = torch.as_tensor(labels, dtype=torch.int64)
+        iscrowd = torch.as_tensor(iscrowd, dtype=torch.int64)
+        image_id = torch.tensor([idx])
+        area = (boxes[:, 3] - boxes[:, 1]) * (boxes[:, 2] - boxes[:, 0])
+
+        target = {}
+        target["boxes"] = boxes
+        target["labels"] = labels
+        target["image_id"] = image_id
+        target["area"] = area
+        target["iscrowd"] = iscrowd
+
         image, target = self.t_t(image, target)
-        if flip_:
+        if fl:
             image, target = self.flip(image, target)
         return image, target
 
@@ -271,56 +312,16 @@ class VOCDataSet(Dataset):
         return
 
     def prepare_data(self, xml_list, fl):
-        self.images=[]
-        self.targets=[]
-        print("Flipping {:d} images".format(len(xml_list)))
-        # collect all images and gt in xml_list
-        for idx, xml_path in enumerate(xml_list):
-            with open(xml_path) as fid:
-                xml_str = fid.read()
-            xml = etree.fromstring(xml_str)
-            data = self.parse_xml_to_dict(xml)["annotation"]
-            img_path = os.path.join(self.root, data["folder"], "JPEGImages", data["filename"])
-            boxes = []
-            labels = []
-            iscrowd = []
-            assert "object" in data, "{} lack of object information.".format(xml_path)
-            for obj in data["object"]:
-                cls_id = self.class_dict[obj["name"]]
-
-                xmin = float(obj["bndbox"]["xmin"])
-                xmax = float(obj["bndbox"]["xmax"])
-                ymin = float(obj["bndbox"]["ymin"])
-                ymax = float(obj["bndbox"]["ymax"])
-
-                # 进一步检查数据，有的标注信息中可能有w或h为0的情况，这样的数据会导致计算回归loss为nan
-                if xmax <= xmin or ymax <= ymin:
-                    print("Warning: in '{}' xml, there are some bbox w/h <=0".format(xml_path))
-                    continue
-                boxes.append([xmin, ymin, xmax, ymax])
-                labels.append(cls_id)
-                iscrowd.append(int(obj["difficult"]))
-                
-            if len(labels)==0:# no proper object in this image
-                continue
-            # convert everything into a torch.Tensor
-            boxes = torch.as_tensor(boxes, dtype=torch.float32)
-            labels = torch.as_tensor(labels, dtype=torch.int64)
-            iscrowd = torch.as_tensor(iscrowd, dtype=torch.int64)
-            image_id = torch.tensor([idx])
-
-            target = {}
-            target["boxes"] = boxes
-            target["labels"] = labels
-            target["image_id"] = image_id
-            target["iscrowd"] = iscrowd
-            self.images.append({"path":img_path, "flip": False})
-            self.targets.append(target)
+        self.data={"path":[],"flip":[]}
+        for xml_path in xml_list:
+            self.data["path"].append(xml_path)
+            self.data["flip"].append(False)
             if fl:
-                # flip images and target
-                self.images.append({"path":img_path, "flip": True})
-                self.targets.append(target)
-        print("After flipping, together {:d} images for base train / val".format(len(self.images)))
+                self.data["path"].append(xml_path)
+                self.data["flip"].append(True)
+        # collect all images and gt in xml_list
+
+        print("After flipping, together {:d} images for base train / val".format(len(self.data["path"])))
 
     def get_height_and_width(self, idx):
         # read xml
