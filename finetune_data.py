@@ -16,6 +16,7 @@ from lxml import etree
 from draw_box_utils import draw_box
 import collections
 from transforms import RandomHorizontalFlip as flip
+from transforms import ToTensor
 
 def vis_data(t):
     im=tf.ToPILImage()(t[0])
@@ -170,7 +171,7 @@ class MetaDataset(data.Dataset):
 class FtDataSet(data.Dataset):
     """pre-pare dataset for finetuning, only VOC2007"""
     """Assert MetaDataset is firstly called to generat shots.txt"""
-    def __init__(self, voc_root, allclass, transforms, shots, txt_name: str = "shots.txt", base_num=15):
+    def __init__(self, voc_root, allclass, shots, txt_name: str = "shots.txt", base_num=15):
         self.root=os.path.join(voc_root, "VOCdevkit")
         self.root_07 = os.path.join(voc_root, "VOCdevkit", "VOC2007")
         self.img_root_07 = os.path.join(self.root_07, "JPEGImages")
@@ -192,22 +193,19 @@ class FtDataSet(data.Dataset):
         self.class_dict = dict(zip(self.allclass, range(1,len(self.allclass)+1)))  # class to index mapping
         # prepare finetune data: 3*"shots"*2(flipped) base class and shots*2(flipped) novel class
 
-        self.prepare_data(self.xml_list_07, shots, base_num)
-        self.transforms = transforms
         self.flip = flip(1)
+        self.t_t = ToTensor()
+        self.prepare_data(self.xml_list_07, shots, base_num)
 
     def __len__(self):
-        return len(self.xml_list)
+        return len(self.images)
 
     def __getitem__(self, idx):
         # images and targets are already prpared, load
         image = self.images[idx]
         target = self.targets[idx]
-        if self.transforms is not None:
-            image, target = self.transforms(image, target)
-
         return image, target
-        
+
     def prepare_data(self, xml_list, shots, base_num):
         self.images=[]
         self.targets=[]
@@ -254,27 +252,26 @@ class FtDataSet(data.Dataset):
                     labels.append(cls_id)
                     iscrowd.append(0)
                     class_count[cls_id] += 1
-
+            if len(labels)==0:# no proper object in this image
+                continue
             # convert everything into a torch.Tensor
             boxes = torch.as_tensor(boxes, dtype=torch.float32)
             labels = torch.as_tensor(labels, dtype=torch.int64)
             iscrowd = torch.as_tensor(iscrowd, dtype=torch.int64)
             image_id = torch.tensor([idx])
-            area = (boxes[:, 3] - boxes[:, 1]) * (boxes[:, 2] - boxes[:, 0])
 
             target = {}
             target["boxes"] = boxes
             target["labels"] = labels
             target["image_id"] = image_id
-            target["area"] = area
             target["iscrowd"] = iscrowd
-
+            image, target=self.t_t(image, target)
             self.images.append(image)
             self.targets.append(target)
             # flip images and target
             image_, target_ = self.flip(image, target)
-            self.images.append(image)
-            self.targets.append(target)
+            self.images.append(image_)
+            self.targets.append(target_)
         print("After filtering and flipping, together {:d} images for finetune".format(len(self.images)))
 
 

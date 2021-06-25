@@ -4,6 +4,9 @@ import torch
 import json
 from PIL import Image
 from lxml import etree
+import collections
+from transforms import RandomHorizontalFlip as flip
+from transforms import ToTensor
 
 
 class VOC2012DataSet(Dataset):
@@ -181,7 +184,7 @@ class VOC2012DataSet(Dataset):
 class VOCDataSet(Dataset):
     """读取解析PASCAL VOC2012数据集"""
 
-    def __init__(self, voc_root, allclass, transforms, txt_name: str = "train.txt"):
+    def __init__(self, voc_root, allclass, transforms, txt_name: str):
         self.root=os.path.join(voc_root, "VOCdevkit")
         self.root_12 = os.path.join(voc_root, "VOCdevkit", "VOC2012")
         self.root_07 = os.path.join(voc_root, "VOCdevkit", "VOC2007")
@@ -192,10 +195,17 @@ class VOCDataSet(Dataset):
         self.allclass=allclass
 
         # read train.txt or val.txt file
-        txt_path_12 = os.path.join(self.root_12, "ImageSets", "Main", txt_name)
-        txt_path_07 = os.path.join(self.root_07, "ImageSets", "Main", txt_name)
-        assert os.path.exists(txt_path_12), "not found {} file.".format(txt_name)
-        assert os.path.exists(txt_path_07), "not found {} file.".format(txt_name)
+        if "val" in txt_name:
+            name_07=txt_name
+            name_12=txt_name
+        else:
+            names = txt_name.split("+")
+            name_07 = names[0]+".txt"
+            name_12 = names[1]+".txt"
+        txt_path_12 = os.path.join(self.root_12, "ImageSets", "Main", name_12)
+        txt_path_07 = os.path.join(self.root_07, "ImageSets", "Main", name_07)
+        assert os.path.exists(txt_path_12), "not found {} file.".format(name_12)
+        assert os.path.exists(txt_path_07), "not found {} file.".format(name_07)
 
         with open(txt_path_12) as read:
             self.xml_list_12 = [os.path.join(self.annotations_root_12, line.strip() + ".xml")
@@ -213,73 +223,32 @@ class VOCDataSet(Dataset):
             assert os.path.exists(xml_list_07), "not found '{}' file.".format(xml_list_07)
         
         #merge xml_list and filter classes
-        self.filer_data(self.xml_list_07+self.xml_list_12)
-
-        # read class_indict
-        # json_file = './pascal_voc_classes.json'
-        # assert os.path.exists(json_file), "{} file not exist.".format(json_file)
-        # json_file = open(json_file, 'r')
-        # self.class_dict = json.load(json_file)
-        # change to class split
         self.class_dict = dict(zip(self.allclass, range(1,len(self.allclass)+1)))  # class to index mapping
-
+        self.flip = flip(1)
+        self.t_t = ToTensor()
         self.transforms = transforms
-        print("prepared VOC 2007+2012 for training set, total images: {:d}".format(len(self.xml_list)))
+        self.filer_data(self.xml_list_07+self.xml_list_12)
+        if "val" in txt_name:
+            self.prepare_data(self.xml_list, False)
+            print("use VOC 2007+2012 val.txt, total images: {:d}".format(len(self.images)))
+        else:
+            self.prepare_data(self.xml_list, True)
+            print("prepared VOC 2007+2012, total images: {:d}".format(len(self.images)))
 
     def __len__(self):
-        return len(self.xml_list)
+        return len(self.images)
 
     def __getitem__(self, idx):
-        # read xml
-        xml_path = self.xml_list[idx]
-        with open(xml_path) as fid:
-            xml_str = fid.read()
-        xml = etree.fromstring(xml_str)
-        data = self.parse_xml_to_dict(xml)["annotation"]
-        img_path = os.path.join(self.root, data["folder"], "JPEGImages", data["filename"])
+                # images and targets are already prpared, load
+        img_path = self.images[idx]["path"]
+        flip_ = self.images[idx]["flip"]
         image = Image.open(img_path)
         if image.format != "JPEG":
             raise ValueError("Image '{}' format not JPEG".format(img_path))
-
-        boxes = []
-        labels = []
-        iscrowd = []
-        assert "object" in data, "{} lack of object information.".format(xml_path)
-        for obj in data["object"]:
-            xmin = float(obj["bndbox"]["xmin"])
-            xmax = float(obj["bndbox"]["xmax"])
-            ymin = float(obj["bndbox"]["ymin"])
-            ymax = float(obj["bndbox"]["ymax"])
-
-            # 进一步检查数据，有的标注信息中可能有w或h为0的情况，这样的数据会导致计算回归loss为nan
-            if xmax <= xmin or ymax <= ymin:
-                print("Warning: in '{}' xml, there are some bbox w/h <=0".format(xml_path))
-                continue
-            
-            boxes.append([xmin, ymin, xmax, ymax])
-            labels.append(self.class_dict[obj["name"]])
-            if "difficult" in obj:
-                iscrowd.append(int(obj["difficult"]))
-            else:
-                iscrowd.append(0)
-
-        # convert everything into a torch.Tensor
-        boxes = torch.as_tensor(boxes, dtype=torch.float32)
-        labels = torch.as_tensor(labels, dtype=torch.int64)
-        iscrowd = torch.as_tensor(iscrowd, dtype=torch.int64)
-        image_id = torch.tensor([idx])
-        area = (boxes[:, 3] - boxes[:, 1]) * (boxes[:, 2] - boxes[:, 0])
-
-        target = {}
-        target["boxes"] = boxes
-        target["labels"] = labels
-        target["image_id"] = image_id
-        target["area"] = area
-        target["iscrowd"] = iscrowd
-
-        if self.transforms is not None:
-            image, target = self.transforms(image, target)
-
+        target = self.targets[idx]
+        image, target = self.t_t(image, target)
+        if flip_:
+            image, target = self.flip(image, target)
         return image, target
 
     def filer_data(self, xml_list):
@@ -300,6 +269,58 @@ class VOCDataSet(Dataset):
                 self.xml_list.append(xml)
         print("After filtering: {:d} images".format(len(self.xml_list)))
         return
+
+    def prepare_data(self, xml_list, fl):
+        self.images=[]
+        self.targets=[]
+        print("Flipping {:d} images".format(len(xml_list)))
+        # collect all images and gt in xml_list
+        for idx, xml_path in enumerate(xml_list):
+            with open(xml_path) as fid:
+                xml_str = fid.read()
+            xml = etree.fromstring(xml_str)
+            data = self.parse_xml_to_dict(xml)["annotation"]
+            img_path = os.path.join(self.root, data["folder"], "JPEGImages", data["filename"])
+            boxes = []
+            labels = []
+            iscrowd = []
+            assert "object" in data, "{} lack of object information.".format(xml_path)
+            for obj in data["object"]:
+                cls_id = self.class_dict[obj["name"]]
+
+                xmin = float(obj["bndbox"]["xmin"])
+                xmax = float(obj["bndbox"]["xmax"])
+                ymin = float(obj["bndbox"]["ymin"])
+                ymax = float(obj["bndbox"]["ymax"])
+
+                # 进一步检查数据，有的标注信息中可能有w或h为0的情况，这样的数据会导致计算回归loss为nan
+                if xmax <= xmin or ymax <= ymin:
+                    print("Warning: in '{}' xml, there are some bbox w/h <=0".format(xml_path))
+                    continue
+                boxes.append([xmin, ymin, xmax, ymax])
+                labels.append(cls_id)
+                iscrowd.append(int(obj["difficult"]))
+                
+            if len(labels)==0:# no proper object in this image
+                continue
+            # convert everything into a torch.Tensor
+            boxes = torch.as_tensor(boxes, dtype=torch.float32)
+            labels = torch.as_tensor(labels, dtype=torch.int64)
+            iscrowd = torch.as_tensor(iscrowd, dtype=torch.int64)
+            image_id = torch.tensor([idx])
+
+            target = {}
+            target["boxes"] = boxes
+            target["labels"] = labels
+            target["image_id"] = image_id
+            target["iscrowd"] = iscrowd
+            self.images.append({"path":img_path, "flip": False})
+            self.targets.append(target)
+            if fl:
+                # flip images and target
+                self.images.append({"path":img_path, "flip": True})
+                self.targets.append(target)
+        print("After flipping, together {:d} images for base train / val".format(len(self.images)))
 
     def get_height_and_width(self, idx):
         # read xml

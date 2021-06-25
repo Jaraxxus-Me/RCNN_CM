@@ -25,7 +25,19 @@ def fastrcnn_loss(class_logits, box_regression, labels, regression_targets):
     """
 
     labels = torch.cat(labels, dim=0)
+    proper_ind=torch.where(torch.lt(labels,class_logits.size()[1]))[0]
+    # filter proposals, only base classes are calculated in roi head.
+    labels = labels[proper_ind]
+
+    if labels.max()==0:
+        box_loss=Tensor([0]).to(labels.device)
+        classification_loss = Tensor([0]).to(labels.device)
+        return classification_loss, box_loss
+
+    class_logits = class_logits[proper_ind]
     regression_targets = torch.cat(regression_targets, dim=0)
+    regression_targets = regression_targets[proper_ind]
+    box_regression = box_regression[proper_ind]
 
     # 计算类别损失信息
     classification_loss = F.cross_entropy(class_logits, labels)
