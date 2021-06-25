@@ -49,6 +49,8 @@ def main(args):
     print("Using {} device training.".format(device.type))
 
     # 用来保存coco_info的文件
+    if not os.path.exists("baseline_r"):
+        os.makedirs("baseline_r")
     results_file = "baseline_r/results{}.txt".format(datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
 
     # 检查保存权重文件夹是否存在，不存在则创建
