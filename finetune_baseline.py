@@ -166,7 +166,7 @@ def main(args):
                 'optimizer': optimizer.state_dict(),
                 'lr_scheduler': lr_scheduler.state_dict(),
                 'epoch': epoch}
-            torch.save(save_files, "./fine_baseline/resnet101-model-{}-{}cls-{}shots.pth".format(epoch,len(metaclass),args.shots))
+            torch.save(save_files, "./fine_baseline_weight/resnet101-model-{}-{}cls-{}shots.pth".format(epoch,len(metaclass),args.shots))
 
     # plot loss and lr curve
     if len(train_loss) != 0 and len(learning_rate) != 0:
@@ -190,7 +190,7 @@ if __name__ == "__main__":
     # 训练数据集的根目录(VOCdevkit)
     parser.add_argument('--data_path', default='./', help='dataset')
     # 文件保存地址
-    parser.add_argument('--output_dir', default='./save_weights', help='path where to save')
+    parser.add_argument('--output_dir', default='./fine_baseline_weight', help='path where to save')
     # 若需要接着上次训练，则指定上次训练保存权重文件地址
     parser.add_argument('--resume', default='', type=str, help='resume from checkpoint')
     # 指定接着从哪个epoch数开始训练
