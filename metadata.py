@@ -23,21 +23,21 @@ def vis_data(t):
 
 class MetaDataset(data.Dataset):
 
-    """Meta Dataset
+    """
+    Meta Dataset
     Arguments:
         root (string): filepath to VOCdevkit folder.
         image_set (string): imageset to use (eg. 'train', 'val')
+        txt_name: where to load dataset
         metaclass(string): the class name
         shot(int): the number of instances
     """
 
-    def __init__(self, root, image_sets, metaclass, shots=1, shuffle=False, phase=1):
+    def __init__(self, root, image_sets, metaclass, shots=1, shuffle=False):
         self.root = root
         self.image_set = image_sets
         self.metaclass = metaclass
         self.shots = shots
-        if phase == 2:
-            self.shots = shots * 3
         self.shuffle = shuffle
         self._annopath = os.path.join('%s', 'Annotations', '%s.xml')
         self._imgpath = os.path.join('%s', 'JPEGImages', '%s.jpg')

@@ -295,6 +295,7 @@ class VOCDataSet(Dataset):
     def filer_data(self, xml_list):
         self.xml_list = []
         print("Before filtering: {:d} images".format(len(xml_list)))
+        obj_num=[]
         for i in range(len(xml_list)):
             xml = xml_list[i]
             with open(xml) as fid:
@@ -302,12 +303,16 @@ class VOCDataSet(Dataset):
             xml_e = etree.fromstring(xml_str)
             data = self.parse_xml_to_dict(xml_e)["annotation"]
             proper = True
+            clas=[]
             for obj in data["object"]:
                 label = obj["name"]
+                if label not in clas:
+                    clas.append(label)
                 if label not in self.allclass:
                     proper = False
             if proper:
                 self.xml_list.append(xml)
+                obj_num.append(len(clas))
         print("After filtering: {:d} images".format(len(self.xml_list)))
         return
 

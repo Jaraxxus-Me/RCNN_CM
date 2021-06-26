@@ -10,7 +10,7 @@ import train_utils.distributed_utils as utils
 
 
 def train_one_epoch(model, optimizer, data_loader, meta_loader, device, epoch,
-                    print_freq=50, warmup=False, cls_w=0.3):
+                    print_freq=50, warmup=False, cls_w=0.3, metabs=4):
     model.train()
     metric_logger = utils.MetricLogger(delimiter="  ")
     metric_logger.add_meter('lr', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
@@ -40,9 +40,21 @@ def train_one_epoch(model, optimizer, data_loader, meta_loader, device, epoch,
 
         targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
         prntar = [{k: v.to(device) for k, v in t.items()} for t in prntar]
-
-        images.append(prnims)
-        targets.append(prntar)
+        protolabel=[]
+        for b in range(len(images)):
+            for la in targets[b]["labels"]:
+                if la.item() not in protolabel:
+                    protolabel.append(la.item())
+        protoim=[]
+        prototar=[]
+        for l in protolabel:
+            protoim.append(prnims[l-1])
+            prototar.append(prntar[l-1])
+            # maximum images to load as meta image
+            if len(protoim) >= metabs:
+                break
+        images.append(protoim)
+        targets.append(prototar)
         # 混合精度训练上下文管理器，如果在CPU环境中不起任何作用
         with torch.cuda.amp.autocast(enabled=enable_amp):
             loss_dict = model(images, targets)

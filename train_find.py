@@ -63,7 +63,7 @@ def main(args):
     # load dataset
     if args.phase == 1:
         # First phase only use the base classes, each class has 200 class data
-        shots = 200
+        shots = 2
         
         if args.meta_type == 1:
             args.train_txt = "voc_2007_train_first_split+voc_2012_train_first_split"
@@ -93,7 +93,7 @@ def main(args):
         # load train data set
     # VOCdevkit -> VOC2012/VOC2007 -> ImageSets -> Main -> train.txt
     # new dataset, combine VOC2012/VOC2017, train.txt, 8218 images
-    train_data_set = VOCDataSet(VOC_root, allclass, data_transform["train"], args.train_txt)
+    train_data_set = VOCDataSet(VOC_root, metaclass, data_transform["train"], args.train_txt)
     # 注意这里的collate_fn是自定义的，因为读取的数据包括image和targets，不能直接使用默认的方法合成batch
     batch_size = args.bs
     val_size = args.bs_v
@@ -123,7 +123,7 @@ def main(args):
     else:
         img_set = [('2007', 'trainval')]
     metadataset = MetaDataset(VOC_root, img_set, metaclass,
-                                    shots=shots, shuffle=True, phase=args.phase)
+                                    shots=shots, shuffle=True)
     metaloader = torch.utils.data.DataLoader(metadataset, batch_size=1,
                                                 shuffle=False, num_workers=0, pin_memory=True)
 
@@ -158,7 +158,7 @@ def main(args):
     for epoch in range(args.start_epoch, args.epochs, 1):
         # train for one epoch, printing every 50 iterations
         mean_loss, lr = utils.train_one_epoch(model, optimizer, train_data_loader, metaloader,
-                                              device, epoch, print_freq=50,cls_w=args.cls)
+                                              device, epoch, print_freq=50,cls_w=args.cls, metabs=args.metabs)
         train_loss.append(mean_loss.item())
         learning_rate.append(lr)
 
@@ -215,7 +215,7 @@ if __name__ == "__main__":
     # 指定接着从哪个epoch数开始训练
     parser.add_argument('--start_epoch', default=0, type=int, help='start epoch')
     # 训练的总epoch数
-    parser.add_argument('--epochs', default=25, type=int, metavar='N',
+    parser.add_argument('--epochs', default=20, type=int, metavar='N',
                         help='number of total epochs to run')
     # traing phase (1/2)
     parser.add_argument('--phase', default=1, type=int,
@@ -234,6 +234,9 @@ if __name__ == "__main__":
                         help='batch size when training.')
     # validation batch size
     parser.add_argument('--bs_v', default=4, type=int, metavar='N',
+                        help='batch size when training.')
+    # metadata batch size
+    parser.add_argument('--metabs', default=4, type=int, metavar='N',
                         help='batch size when training.')
     # weight of cls loss during training
     parser.add_argument('--cls', default=0.3, type=float,
