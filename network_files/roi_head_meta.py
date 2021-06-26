@@ -119,7 +119,8 @@ class RoIHeads(torch.nn.Module):
         self.box_coder = det_utils.BoxCoder(bbox_reg_weights)
 
         self.box_roi_pool = box_roi_pool    # Multi-scale RoIAlign pooling
-        self.box_head = box_head            # TwoMLPHead
+        self.box_head_r = box_head["reg"]            # TwoMLPHead
+        self.box_head_c = box_head["cls"]
         self.box_predictor = box_predictor  # FastRCNNPredictor
 
         self.score_thresh = score_thresh  # default: 0.05
@@ -319,7 +320,7 @@ class RoIHeads(torch.nn.Module):
 
         # 对预测类别结果进行softmax处理 and fuse cos_sim and linear cls output
         pred_scores = F.softmax(data_logits, -1)
-        pred_scores = 0.5*pred_scores + 0.5*cos_simi
+        pred_scores = cos_simi
         # split boxes and scores per image
         # 根据每张图像的预测bbox数量分割结果
         pred_boxes_list = pred_boxes.split(boxes_per_image, 0)
@@ -419,10 +420,11 @@ class RoIHeads(torch.nn.Module):
         proto_features = self.box_roi_pool(proto_feat, proto_boxes, prnimage_shapes)
         # 通过roi_pooling后的两层全连接层
         # box_features_shape: [num_proposals, representation_size]
-        box_features = self.box_head(box_features)
-        proto_features = self.box_head(proto_features)
+        box_features_r = self.box_head_r(box_features)
+        box_features_c = self.box_head_c(box_features)
+        proto_features = self.box_head_c(proto_features)
         # 接着分别预测目标类别和边界框回归参数
-        class_logits, box_regression = self.box_predictor(box_features, proto_features)
+        class_logits, box_regression = self.box_predictor(box_features_r, box_features_c, proto_features)
 
         result = torch.jit.annotate(List[Dict[str, torch.Tensor]], [])
         losses = {}

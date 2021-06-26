@@ -6,7 +6,7 @@ import torchvision
 
 import transforms
 from network_files import Find, AnchorsGenerator
-from backbone import MobileNetV2, vgg
+from backbone import MobileNetV2, vgg, resnet101
 from my_dataset import VOCDataSet
 from metadata import MetaDataset
 from train_utils import train_eval_utils_meta as utils
@@ -19,9 +19,11 @@ def create_model(num_classes):
     # backbone = torch.nn.Sequential(*list(vgg_feature._modules.values())[:-1])  # 删除features中最后一个Maxpool层
     # backbone.out_channels = 512
 
-    # https://download.pytorch.org/models/mobilenet_v2-b0353104.pth
-    backbone = MobileNetV2(weights_path="./backbone/mobilenet_v2.pth").features
-    backbone.out_channels = 1280  # 设置对应backbone输出特征矩阵的channels
+    backbone = resnet101()
+    print("Loading pretrained weights from %s" % ("./backbone/resnet101.pth"))
+    state_dict = torch.load("./backbone/resnet101.pth")
+    backbone.load_state_dict({k: v for k, v in state_dict.items() if k in backbone.state_dict()})
+    backbone.out_channels = 2048
 
     anchor_generator = AnchorsGenerator(sizes=((32, 64, 128, 256, 512),),
                                         aspect_ratios=((0.5, 1.0, 2.0),))
@@ -43,8 +45,9 @@ def main(args):
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     print("Using {} device training.".format(device.type))
 
-    # 用来保存coco_info的文件
-    results_file = "results{}.txt".format(datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
+    if not os.path.exists("baseline_f"):
+        os.makedirs("baseline_f")
+    results_file = "baseline_f/results{}.txt".format(datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
 
     data_transform = {
         "train": transforms.Compose([transforms.ToTensor(),
@@ -62,30 +65,35 @@ def main(args):
         # First phase only use the base classes, each class has 200 class data
         shots = 200
         
-        if args.meta_type == 1:  #  use the first sets of base classes
+        if args.meta_type == 1:
+            args.train_txt = "voc_2007_train_first_split+voc_2012_train_first_split"
             metaclass = cfg.TRAIN.BASECLASSES_FIRST
             allclass = cfg.TRAIN.ALLCLASSES_FIRST
-        if args.meta_type == 2:  #  use the second sets of base classes
+        elif args.meta_type == 2:
+            args.train_txt = "voc_2007_train_second_split+voc_2012_train_second_split"
             metaclass = cfg.TRAIN.BASECLASSES_SECOND
             allclass = cfg.TRAIN.ALLCLASSES_SECOND
-        if args.meta_type == 3:  #  use the third sets of base classes
+        elif args.meta_type == 3:
+            args.train_txt = "voc_2007_train_third_split+voc_2012_train_third_split"
             metaclass = cfg.TRAIN.BASECLASSES_THIRD
             allclass = cfg.TRAIN.ALLCLASSES_THIRD
     else:
         # Second phase only use fewshot number of base and novel classes
         shots = args.shots
-        
         if args.meta_type == 1:  #  use the first sets of all classes
             metaclass = cfg.TRAIN.ALLCLASSES_FIRST
+            args.train_txt = "voc_2007_train_first"
         if args.meta_type == 2:  #  use the second sets of all classes
             metaclass = cfg.TRAIN.ALLCLASSES_SECOND
+            args.train_txt = "voc_2007_train_second"
         if args.meta_type == 3:  #  use the third sets of all classes
             metaclass = cfg.TRAIN.ALLCLASSES_THIRD
+            args.train_txt = "voc_2007_train_third"
 
         # load train data set
     # VOCdevkit -> VOC2012/VOC2007 -> ImageSets -> Main -> train.txt
     # new dataset, combine VOC2012/VOC2017, train.txt, 8218 images
-    train_data_set = VOCDataSet(VOC_root, allclass, data_transform["train"], "train.txt")
+    train_data_set = VOCDataSet(VOC_root, allclass, data_transform["train"], args.train_txt)
     # 注意这里的collate_fn是自定义的，因为读取的数据包括image和targets，不能直接使用默认的方法合成batch
     batch_size = args.bs
     val_size = args.bs_v
@@ -131,78 +139,23 @@ def main(args):
     learning_rate = []
     val_map = []
 
-    # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
-    #  first frozen backbone and train 5 epochs                   #
-    #  首先冻结前置特征提取网络权重（backbone），训练rpn以及最终预测网络部分 #
-    # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
-    for param in model.backbone.parameters():
-        param.requires_grad = False
-
-    # define optimizer
+    lr = cfg.TRAIN.LEARNING_RATE
+    params = []
+    for key, value in dict(model.named_parameters()).items():
+        if value.requires_grad:
+            if 'bias' in key:
+                params += [{'params': [value], 'lr': lr * (cfg.TRAIN.DOUBLE_BIAS + 1), \
+                            'weight_decay': cfg.TRAIN.BIAS_DECAY and cfg.TRAIN.WEIGHT_DECAY or 0}]
+            else:
+                params += [{'params': [value], 'lr': lr, 'weight_decay': cfg.TRAIN.WEIGHT_DECAY}]
     params = [p for p in model.parameters() if p.requires_grad]
-    optimizer = torch.optim.SGD(params, lr=0.005,
-                                momentum=0.9, weight_decay=0.0005)
-
-    init_epochs = 5
-    if args.resume=='':
-        for epoch in range(init_epochs):
-            # train for one epoch, printing every 10 iterations
-            mean_loss, lr = utils.train_one_epoch(model, optimizer, train_data_loader, metaloader,
-                                                device, epoch, print_freq=50, warmup=True, cls_w=args.cls)
-            train_loss.append(mean_loss.item())
-            learning_rate.append(lr)
-
-            # evaluate on the test dataset
-            coco_info = utils.evaluate(model, val_data_set_loader, metaloader, device=device)
-
-            # write into txt
-            with open(results_file, "a") as f:
-                # 写入的数据包括coco指标还有loss和learning rate
-                result_info = [str(round(i, 4)) for i in coco_info + [mean_loss.item()]] + [str(round(lr, 6))]
-                txt = "epoch:{} {}".format(epoch, '  '.join(result_info))
-                f.write(txt + "\n")
-
-            val_map.append(coco_info[1])  # pascal mAP
-                # save weights
-        save_files = {
-            'model': model.state_dict(),
-            'optimizer': optimizer.state_dict(),
-            'epoch': epoch}
-        torch.save(save_files, os.path.join(args.output_dir ,"pretrain.pth"))
-
-    if args.resume != "":
-        checkpoint = torch.load(args.resume, map_location=device)
-        model.load_state_dict(checkpoint['model'])
-
-    # # # # # # # # # # # # # # # # # # # # # # # # # # # #
-    #  second unfrozen backbone and train all network     #
-    #  解冻前置特征提取网络权重（backbone），接着训练整个网络权重  #
-    # # # # # # # # # # # # # # # # # # # # # # # # # # # # 
-    # 冻结backbone部分底层权重
-    for name, parameter in model.backbone.named_parameters():
-        split_name = name.split(".")[0]
-        if split_name in ["0", "1", "2", "3"]:
-            parameter.requires_grad = False
-        else:
-            parameter.requires_grad = True
-    # define optimizer
-    params = [p for p in model.parameters() if p.requires_grad]
-    optimizer = torch.optim.SGD(params, lr=0.005,
-                                momentum=0.9, weight_decay=0.0005)
+    optimizer = torch.optim.SGD(params, lr, momentum=cfg.TRAIN.MOMENTUM)
     # learning rate scheduler
     lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer,
                                                    step_size=3,
                                                    gamma=0.33)
-        # 如果指定了上次训练保存的权重文件地址，则接着上次结果接着训练
-    if args.resume != "":
-        optimizer.load_state_dict(checkpoint['optimizer'])
-        lr_scheduler.load_state_dict(checkpoint['lr_scheduler'])
-        args.start_epoch = checkpoint['epoch'] + 1
-        print("the training process from epoch{}...".format(args.start_epoch))
-    else:
-        args.start_epoch = init_epochs
 
-    for epoch in range(args.start_epoch, args.epochs+init_epochs):
+    for epoch in range(args.start_epoch, args.epochs, 1):
         # train for one epoch, printing every 50 iterations
         mean_loss, lr = utils.train_one_epoch(model, optimizer, train_data_loader, metaloader,
                                               device, epoch, print_freq=50,cls_w=args.cls)
@@ -226,13 +179,13 @@ def main(args):
 
         # save weights
         # 仅保存最后5个epoch的权重
-        if epoch in range(args.epochs+init_epochs)[-5:]:
+        if epoch in range(args.epochs)[-5:]:
             save_files = {
                 'model': model.state_dict(),
                 'optimizer': optimizer.state_dict(),
                 'lr_scheduler': lr_scheduler.state_dict(),
                 'epoch': epoch}
-            torch.save(save_files, os.path.join(args.output_dir,"mobile-model-{}.pth".format(epoch)))
+            torch.save(save_files, os.path.join(args.output_dir,"{}/resnet101-find-{}.pth".format(args.output_dir,epoch)))
 
     # plot loss and lr curve
     if len(train_loss) != 0 and len(learning_rate) != 0:
