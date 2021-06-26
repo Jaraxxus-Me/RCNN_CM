@@ -24,9 +24,13 @@ def create_model(num_classes):
     # https://download.pytorch.org/models/mobilenet_v2-b0353104.pth
     # backbone = MobileNetV2(weights_path="./backbone/mobilenet_v2.pth").features
     # backbone.out_channels = 1280  # 设置对应backbone输出特征矩阵的channels
-    backbone = resnet101(weights_path="./backbone/mobilenet_v2.pth", pretrained=True).features
-    backbone.out_channels = 1280  # 设置对应backbone输出特征矩阵的channels
 
+    # use resnet101 as baseline backbone
+    backbone = resnet101()
+    print("Loading pretrained weights from %s" % ("./backbone/resnet101.pth"))
+    state_dict = torch.load("./backbone/resnet101.pth")
+    backbone.load_state_dict({k: v for k, v in state_dict.items() if k in backbone.state_dict()})
+    backbone.out_channels = 2048
     anchor_generator = AnchorsGenerator(sizes=((32, 64, 128, 256, 512),),
                                         aspect_ratios=((0.5, 1.0, 2.0),))
 
@@ -47,7 +51,7 @@ def main(args):
     print("Using {} device training.".format(device.type))
 
     # 用来保存coco_info的文件
-    results_file = "results/results{}.txt".format(datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
+    results_file = "baseline_r/fine_results{}.txt".format(datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
 
     # 检查保存权重文件夹是否存在
     assert os.path.exists(args.resume)
@@ -98,10 +102,17 @@ def main(args):
     # create model num_classes equal background + 20 classes
     model = create_model(len(metaclass)+1)
     model.to(device)
+    new_state_dict = model.state_dict()
     print("loading checkpoint %s" % (args.resume))
     checkpoint = torch.load(args.resume)
 
-    new_state_dict = model.state_dict()
+    # save original trained weights of linear layers, expand the matrix dimension
+    for name in checkpoint['model']:
+        if ("roi_heads.box_predictor.cls_score" in name) or ("roi_heads.box_predictor.bbox_pred" in name):
+            init_weight=new_state_dict[name]
+            init_weight[:checkpoint['model'][name].size()[0]] = checkpoint['model'][name]
+            checkpoint['model'][name] = init_weight
+    # load params to model
     new_state_dict.update(checkpoint['model'])
     model.load_state_dict(new_state_dict)
     
@@ -125,8 +136,7 @@ def main(args):
     learning_rate = []
     val_map = []
 
-    num_epochs = 20
-    for epoch in range(init_epochs, num_epochs+init_epochs, 1):
+    for epoch in range(args.start_epoch, args.epochs, 1):
         # train for one epoch, printing every 50 iterations
         mean_loss, lr = utils.train_one_epoch(model, optimizer, train_data_loader,
                                               device, epoch, print_freq=50)
@@ -150,13 +160,13 @@ def main(args):
 
         # save weights
         # 仅保存最后5个epoch的权重
-        if epoch in range(num_epochs+init_epochs)[-5:]:
+        if epoch in range(args.epochs)[-5:]:
             save_files = {
                 'model': model.state_dict(),
                 'optimizer': optimizer.state_dict(),
                 'lr_scheduler': lr_scheduler.state_dict(),
                 'epoch': epoch}
-            torch.save(save_files, "./save_weights/mobile-model-{}.pth".format(epoch))
+            torch.save(save_files, "./fine_baseline/resnet101-model-{}-{}cls-{}shots.pth".format(epoch,len(metaclass),args.shots))
 
     # plot loss and lr curve
     if len(train_loss) != 0 and len(learning_rate) != 0:
@@ -186,7 +196,7 @@ if __name__ == "__main__":
     # 指定接着从哪个epoch数开始训练
     parser.add_argument('--start_epoch', default=0, type=int, help='start epoch')
     # 训练的总epoch数
-    parser.add_argument('--epochs', default=25, type=int, metavar='N',
+    parser.add_argument('--epochs', default=10, type=int, metavar='N',
                         help='number of total epochs to run')
     # split (1/2/3)
     parser.add_argument('--meta_type', default=1, type=int,
