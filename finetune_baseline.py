@@ -145,22 +145,22 @@ def main(args):
 
         # update the learning rate
         lr_scheduler.step()
+        if epoch in range(args.epochs)[-2:]:
+        # evaluate on the test dataset of last 2 epochs
+            coco_info = utils.evaluate(model, val_data_set_loader, device=device)
 
-        # evaluate on the test dataset
-        coco_info = utils.evaluate(model, val_data_set_loader, device=device)
+            # write into txt
+            with open(results_file, "a") as f:
+                # 写入的数据包括coco指标还有loss和learning rate
+                result_info = [str(round(i, 4)) for i in coco_info + [mean_loss.item()]] + [str(round(lr, 6))]
+                txt = "epoch:{} {}".format(epoch, '  '.join(result_info))
+                f.write(txt + "\n")
 
-        # write into txt
-        with open(results_file, "a") as f:
-            # 写入的数据包括coco指标还有loss和learning rate
-            result_info = [str(round(i, 4)) for i in coco_info + [mean_loss.item()]] + [str(round(lr, 6))]
-            txt = "epoch:{} {}".format(epoch, '  '.join(result_info))
-            f.write(txt + "\n")
-
-        val_map.append(coco_info[1])  # pascal mAP
+            val_map.append(coco_info[1])  # pascal mAP
 
         # save weights
-        # 仅保存最后5个epoch的权重
-        if epoch in range(args.epochs)[-5:]:
+        # 仅保存最后2个epoch的权重
+        if epoch in range(args.epochs)[-2:]:
             save_files = {
                 'model': model.state_dict(),
                 'optimizer': optimizer.state_dict(),
