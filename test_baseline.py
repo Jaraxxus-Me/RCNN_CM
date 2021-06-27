@@ -219,7 +219,7 @@ def main(parser_data):
 
     print_voc = "\n".join(voc_map_info_list)
     print(print_voc)
-    model_name=parser_data.resume.split("/")[-1][:-4]
+    model_name="resnet101-model-{}-{}cls-{}shots.pth".format(parser_data.epoch,parser_data.cls,parser_data.shots)[:-4]
     # 将验证结果保存至txt文件中
     with open("{}/record_mAP_{}.txt".format(parser_data.output_dir,model_name), "w") as f:
         record_lines = ["COCO results:",
