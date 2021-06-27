@@ -224,10 +224,11 @@ class FindPredictor(nn.Module):
         self.cos_score = PairwiseCosine()
         self.reweight = nn.Linear(2*num_classes, num_classes)
 
-    def forward(self, x1, x2, y):
+    def forward(self, x1, x2, y, meta_tar, training):
         # x1: box feature reg
         # x2: box feature cls
         # y: proto feature
+        meta_cls = [t["labels"][0] for t in meta_tar]
         if x1.dim() == 4:
             assert list(x1.shape[2:]) == [1, 1]
         x1 = x1.flatten(start_dim=1)
@@ -235,13 +236,23 @@ class FindPredictor(nn.Module):
         meta_score = self.cls_score(y)
         data_score = self.cls_score(x2)
         cos_sim = self.cos_score(x2,y)
-        cos_score=torch.ones_like(data_score)
-        cos_score[:,1:]=cos_sim
-        scores=[data_score,meta_score,cos_score]
+        cos_sim = cos_sim.squeeze(0)
+        def remap_s(cos_martix, sc_matrix, cls, training):
+            if training:
+                # for training, other class add nother to loss
+                new_cos = torch.ones_like(sc_matrix)
+            else:
+                # for eval, other class score is zero
+                new_cos = torch.zeros_like(sc_matrix)
+            for i,c in enumerate(cls):
+                new_cos[:, c[0]]=cos_martix[:, i]
+            return new_cos
+
+        cos_score=remap_s(cos_sim, data_score, meta_cls, training)
+        scores=[data_score, meta_score,cos_score]
         bbox_deltas = self.bbox_pred(x1)
 
-        return scores, bbox_deltas
-
+        return scores, bbox_deltas, meta_cls
 
 
 class Find(MetaRCNNBase):

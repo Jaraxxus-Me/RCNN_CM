@@ -209,7 +209,7 @@ if __name__ == "__main__":
     # 训练数据集的根目录(VOCdevkit)
     parser.add_argument('--data_path', default='./', help='dataset')
     # 文件保存地址
-    parser.add_argument('--output_dir', default='./save_weights', help='path where to save')
+    parser.add_argument('--output_dir', default='./find_weights', help='path where to save')
     # 若需要接着上次训练，则指定上次训练保存权重文件地址
     parser.add_argument('--resume', default='', type=str, help='resume from checkpoint')
     # 指定接着从哪个epoch数开始训练
