@@ -8,12 +8,12 @@
             "name": "Python: 当前文件",
             "type": "python",
             "request": "launch",
-            "program": "finetune_baseline.py",
+            "program": "test_baseline.py",
             "console": "integratedTerminal",
             "args": [
                 "--data_path", "/home/li/CMU_RISS/FSDet/data",
                 "--bs", "1",
-                "--resume", "./baseline_weights_res/resnet101-baseline-21.pth"
+                "--resume", "./fine_baseline_weight"
             ]
         }
     ]

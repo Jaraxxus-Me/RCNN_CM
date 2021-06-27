@@ -9,11 +9,11 @@ from transforms import RandomHorizontalFlip as flip
 from transforms import ToTensor
 
 
-class VOC2012DataSet(Dataset):
+class VOC2007DataSet(Dataset):
     """读取解析PASCAL VOC2012数据集"""
 
     def __init__(self, voc_root, transforms, txt_name: str = "train.txt"):
-        self.root = os.path.join(voc_root, "VOCdevkit", "VOC2012")
+        self.root = os.path.join(voc_root, "VOCdevkit", "VOC2007")
         self.img_root = os.path.join(self.root, "JPEGImages")
         self.annotations_root = os.path.join(self.root, "Annotations")
 
