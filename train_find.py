@@ -63,7 +63,7 @@ def main(args):
     # load dataset
     if args.phase == 1:
         # First phase only use the base classes, each class has 200 class data
-        shots = 2
+        shots = 200
         
         if args.meta_type == 1:
             args.train_txt = "voc_2007_train_first_split+voc_2012_train_first_split"
@@ -178,8 +178,8 @@ def main(args):
         val_map.append(coco_info[1])  # pascal mAP
 
         # save weights
-        # 仅保存最后5个epoch的权重
-        if epoch in range(args.epochs)[-5:]:
+        # 仅保存最后10个epoch的权重
+        if epoch in range(args.epochs)[-10:]:
             save_files = {
                 'model': model.state_dict(),
                 'optimizer': optimizer.state_dict(),
@@ -233,10 +233,10 @@ if __name__ == "__main__":
     parser.add_argument('--bs', default=1, type=int, metavar='N',
                         help='batch size when training.')
     # validation batch size
-    parser.add_argument('--bs_v', default=4, type=int, metavar='N',
+    parser.add_argument('--bs_v', default=1, type=int, metavar='N',
                         help='batch size when training.')
     # metadata batch size
-    parser.add_argument('--metabs', default=4, type=int, metavar='N',
+    parser.add_argument('--metabs', default=2, type=int, metavar='N',
                         help='batch size when training.')
     # weight of cls loss during training
     parser.add_argument('--cls', default=0.3, type=float,

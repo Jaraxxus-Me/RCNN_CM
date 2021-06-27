@@ -131,7 +131,7 @@ def evaluate(model, data_loader, meta_loader, device):
             prototar.append(prntar[l-1])
             # every image must have a prototype
         images.append(protoim)
-        prntar=[prntar]
+        prntar=[prototar]
         # 当使用CPU时，跳过GPU相关指令
         if device != torch.device("cpu"):
             torch.cuda.synchronize(device)
