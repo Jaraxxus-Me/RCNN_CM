@@ -111,13 +111,26 @@ def evaluate(model, data_loader, meta_loader, device):
         except:
             meta_iter = iter(meta_loader)
             prndata, prncls, prntar = next(meta_iter)
+
         #images: b*3*W*H
         #prnims: n*3*W*H
         images = list(img.to(device) for img in image)
         prnims = list(Variable(prnim.squeeze(0)).to(device) for prnim in prndata)
-        prntar = [{k: v.to(device) for k, v in t.items()} for t in prntar]
 
-        images.append(prnims)
+        targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
+        prntar = [{k: v.to(device) for k, v in t.items()} for t in prntar]
+        protolabel=[]
+        for b in range(len(images)):
+            for la in targets[b]["labels"]:
+                if la.item() not in protolabel:
+                    protolabel.append(la.item())
+        protoim=[]
+        prototar=[]
+        for l in protolabel:
+            protoim.append(prnims[l-1])
+            prototar.append(prntar[l-1])
+            # every image must have a prototype
+        images.append(protoim)
         prntar=[prntar]
         # 当使用CPU时，跳过GPU相关指令
         if device != torch.device("cpu"):
