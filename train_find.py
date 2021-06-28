@@ -45,9 +45,9 @@ def main(args):
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     print("Using {} device training.".format(device.type))
 
-    if not os.path.exists("baseline_f"):
-        os.makedirs("baseline_f")
-    results_file = "baseline_f/results{}.txt".format(datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
+    if not os.path.exists("find_r"):
+        os.makedirs("find_r")
+    results_file = "find_r/results{}.txt".format(datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
 
     data_transform = {
         "train": transforms.Compose([transforms.ToTensor(),
@@ -239,7 +239,7 @@ if __name__ == "__main__":
     parser.add_argument('--metabs', default=2, type=int, metavar='N',
                         help='batch size when training.')
     # weight of cls loss during training
-    parser.add_argument('--cls', default=0.3, type=float,
+    parser.add_argument('--cls', default=0.1, type=float,
                         help='weight of cls loss during training')
 
 

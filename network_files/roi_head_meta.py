@@ -42,11 +42,34 @@ def fastrcnn_loss(class_logits, box_regression, labels, meta_label, regression_t
     # filter regression targets
     regression_targets = torch.cat(regression_targets, dim=0)
     regression_targets_ = regression_targets[proper_ind]
-    # 计算类别损失信息
+    # 计算Linear类别损失信息
     classification_loss_data = F.cross_entropy(data_classlo_, labels_)
     classification_loss_meta = F.cross_entropy(meta_classlo, meta_label)
-    log_soft_out = torch.log(cos_lo_)
-    classification_loss_cos = F.nll_loss(log_soft_out, labels_)
+
+    # Calculate cosine similarity loss
+    back_ind = torch.where(torch.eq(labels_, 0))[0]
+    fore_ind = torch.where(torch.gt(labels_, 0))[0]
+    nega_cos = cos_lo_[back_ind]
+    pos_cos = cos_lo_[fore_ind]
+    # Calculate background loss, should all be 0
+    los_nega = torch.sum(nega_cos)/(nega_cos.size()[0]*nega_cos.size()[1])
+    # Calculate foreground loss, should be:
+    # 1 - sim[i] or sim[i] 
+    pos_lab = labels_[fore_ind]
+    # ask Chen if propoer
+    def cal_pos_loss(pos_cos, pos_lab, meta_label):
+        meta_dict = {int(meta_label[i]):i for i in range(len(meta_label))}
+        fake_pos_loss=Tensor([0]).to(meta_label.device)
+        true_pos_loss=Tensor([0]).to(meta_label.device)
+        for i,c in enumerate(pos_lab):
+            true_pos_loss += (1-pos_cos[i,meta_dict[int(c)]])
+            fake_pos_loss += (torch.sum(pos_cos[i,:])-pos_cos[i,meta_dict[int(c)]])
+        return true_pos_loss+fake_pos_loss, meta_dict
+
+    los_pos, meta_dict = cal_pos_loss(pos_cos, pos_lab, meta_label)
+    los_pos = los_pos/(pos_cos.size()[0]*pos_cos.size()[1])
+
+    classification_loss_cos = los_nega + los_pos
     # should be impossible
     if labels_.max()==0:
         box_loss=Tensor([0]).to(labels_.device)
@@ -62,8 +85,9 @@ def fastrcnn_loss(class_logits, box_regression, labels, meta_label, regression_t
     # sampled_pos_inds_subset = torch.nonzero(torch.gt(labels, 0)).squeeze(1)
     sampled_pos_inds_subset = torch.where(torch.gt(labels_, 0))[0]
 
-    # 返回标签类别大于0位置的类别信息
+    # 返回标签类别大于0位置的类别信息, remap
     labels_pos = labels_[sampled_pos_inds_subset]
+    labels_pos = [meta_dict[int(c)] for c in labels_pos]
     # if len(labels_pos) == 0:
     #     box_loss=Tensor([0]).to(labels_.device)
     #     return classification_loss, box_loss
@@ -80,7 +104,7 @@ def fastrcnn_loss(class_logits, box_regression, labels, meta_label, regression_t
         size_average=False,
     ) / labels_.numel()
 
-    return classification_loss, box_loss
+    return classification_loss, 5*box_loss
 
 
 class RoIHeads(torch.nn.Module):
@@ -285,7 +309,8 @@ class RoIHeads(torch.nn.Module):
                                class_logits,    # type: List[Tensor]
                                box_regression,  # type: Tensor
                                proposals,       # type: List[Tensor]
-                               image_shapes     # type: List[Tuple[int, int]]
+                               image_shapes,     # type: List[Tuple[int, int]]
+                               meta_lable       # type: List[Tensor]
                                ):
         # type: (...) -> Tuple[List[Tensor], List[Tensor], List[Tensor]]
         """
@@ -307,20 +332,14 @@ class RoIHeads(torch.nn.Module):
         Returns:
 
         """
-        data_logits = class_logits[0]
         cos_simi = class_logits[-1]
-
-        device = data_logits.device
-        # 预测目标类别数
-        num_classes = data_logits.shape[-1]
 
         # 获取每张图像的预测bbox数量
         boxes_per_image = [boxes_in_image.shape[0] for boxes_in_image in proposals]
         # 根据proposal以及预测的回归参数计算出最终bbox坐标
         pred_boxes = self.box_coder.decode(box_regression, proposals)
 
-        # 对预测类别结果进行softmax处理 and fuse cos_sim and linear cls output
-        pred_scores = F.softmax(data_logits, -1)
+        # use cos_simi as cls
         pred_scores = cos_simi
         # split boxes and scores per image
         # 根据每张图像的预测bbox数量分割结果
@@ -336,14 +355,17 @@ class RoIHeads(torch.nn.Module):
             boxes = box_ops.clip_boxes_to_image(boxes, image_shape)
 
             # create labels for each prediction
-            labels = torch.arange(num_classes, device=device)
-            labels = labels.view(1, -1).expand_as(scores)
+            # labels = torch.arange(num_classes, device=device)
+            # labels = labels.view(1, -1).expand_as(scores)
+
+            labels = Tensor([c for c in meta_lable]).to(boxes.device).to(meta_lable[0].dtype)
+            labels = labels.view(1,-1).expand_as(scores)
 
             # remove prediction with the background label
             # 移除索引为0的所有信息（0代表背景）
-            boxes = boxes[:, 1:]
-            scores = scores[:, 1:]
-            labels = labels[:, 1:]
+            # boxes = boxes[:, 1:]
+            # scores = scores[:, 1:]
+            # labels = labels[:, 1:]
 
             # batch everything, by making every class prediction be a separate instance
             boxes = boxes.reshape(-1, 4)
@@ -422,10 +444,11 @@ class RoIHeads(torch.nn.Module):
         # 通过roi_pooling后的两层全连接层
         # box_features_shape: [num_proposals, representation_size]
         box_features_r = self.box_head_r(box_features)
+        proto_features_r = self.box_head_r(proto_features)
         box_features_c = self.box_head_c(box_features)
-        proto_features = self.box_head_c(proto_features)
+        proto_features_c = self.box_head_c(proto_features)
         # 接着分别预测目标类别和边界框回归参数
-        class_logits, box_regression, meta_label = self.box_predictor(box_features_r, box_features_c, proto_features, prn_targets, self.training)
+        class_logits, box_regression, meta_label = self.box_predictor(box_features_r, proto_features_r, box_features_c, proto_features_c, prn_targets)
 
         result = torch.jit.annotate(List[Dict[str, torch.Tensor]], [])
         losses = {}
@@ -438,7 +461,7 @@ class RoIHeads(torch.nn.Module):
                 "loss_box_reg": loss_box_reg
             }
         else:
-            boxes, scores, labels = self.postprocess_detections(class_logits, box_regression, proposals, image_shapes)
+            boxes, scores, labels = self.postprocess_detections(class_logits, box_regression, proposals, image_shapes, meta_label)
             num_images = len(boxes)
             for i in range(num_images):
                 result.append(

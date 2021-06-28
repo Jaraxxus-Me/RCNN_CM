@@ -220,39 +220,49 @@ class FindPredictor(nn.Module):
     def __init__(self, in_channels, num_classes):
         super(FindPredictor, self).__init__()
         self.cls_score = nn.Linear(in_channels, num_classes)
-        self.bbox_pred = nn.Linear(in_channels, num_classes * 4)
+        self.bbox_pred = nn.Linear(in_channels, 4)
         self.cos_score = PairwiseCosine()
-        self.reweight = nn.Linear(2*num_classes, num_classes)
+        # self.reweight = nn.Linear(2*num_classes, num_classes)
 
-    def forward(self, x1, x2, y, meta_tar, training):
-        # x1: box feature reg
-        # x2: box feature cls
-        # y: proto feature
+    def forward(self, r1, r2, c1, c2, meta_tar):
+        # r1: box feature reg
+        # r2: proto feature reg
+        # c1: box feature cls
+        # c2: proto feature cls
         meta_cls = [t["labels"][0] for t in meta_tar]
-        if x1.dim() == 4:
-            assert list(x1.shape[2:]) == [1, 1]
-        x1 = x1.flatten(start_dim=1)
-        x2 = x2.flatten(start_dim=1)
-        meta_score = self.cls_score(y)
-        data_score = self.cls_score(x2)
-        cos_sim = self.cos_score(x2,y)
+        # if x1.dim() == 4:
+        #     assert list(x1.shape[2:]) == [1, 1]
+        # cls branch
+        c1 = c1.flatten(start_dim=1)
+        c2 = c2.flatten(start_dim=1)
+        meta_score = self.cls_score(c2)
+        data_score = self.cls_score(c1)
+        cos_sim = self.cos_score(c1,c2)
         cos_sim = cos_sim.squeeze(0)
-        def remap_s(cos_martix, sc_matrix, cls, training):
-            if training:
-                # for training, other class add nother to loss
-                new_cos = torch.ones_like(sc_matrix)
-            else:
-                # for eval, other class score is zero
-                new_cos = torch.zeros_like(sc_matrix)
-            for i,c in enumerate(cls):
-                new_cos[:, c[0]]=cos_martix[:, i]
-            return new_cos
+        # def remap_s(cos_martix, sc_matrix, cls, training):
+        #     if training:
+        #         # for training, other class add nother to loss
+        #         new_cos = torch.ones_like(sc_matrix)
+        #     else:
+        #         # for eval, other class score is zero
+        #         new_cos = torch.zeros_like(sc_matrix)
+        #     for i,c in enumerate(cls):
+        #         new_cos[:, c[0]]=cos_martix[:, i]
+        #     return new_cos
 
-        cos_score=remap_s(cos_sim, data_score, meta_cls, training)
-        scores=[data_score, meta_score,cos_score]
-        bbox_deltas = self.bbox_pred(x1)
-
-        return scores, bbox_deltas, meta_cls
+        # cos_score=remap_s(cos_sim, data_score, meta_cls, training)
+        cls_scores=[data_score, meta_score, cos_sim]
+        # reg branch
+        p = r1.size()[0]
+        n = r2.size()[0]
+        assert r1.size()[1]==r2.size()[1]
+        d = r1.size()[1]
+        r1=r1.view(p,-1,d).expand(p,n,d)
+        r2=r2.view(-1,n,d).expand(p,n,d)
+        r = r1.add(r2)
+        bbox_deltas = self.bbox_pred(r)
+        bbox_deltas=bbox_deltas.view(p,-1)
+        return cls_scores, bbox_deltas, meta_cls
 
 
 class Find(MetaRCNNBase):
