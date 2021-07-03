@@ -8,8 +8,8 @@ from . import det_utils
 from . import boxes as box_ops
 
 
-def fastrcnn_loss(class_logits, box_regression, labels, meta_label, regression_targets):
-    # type: (List[Tensor], Tensor, List[Tensor], List[Tensor], List[Tensor]) -> Tuple[Tensor, Tensor]
+def fastrcnn_loss(class_logits, box_regression, labels, meta_label, regression_targets,phase):
+    # type: (List[Tensor], Tensor, List[Tensor], List[Tensor], List[Tensor], int) -> Tuple[Tensor, Tensor]
     """
     Computes the loss for Faster R-CNN.
 
@@ -24,10 +24,10 @@ def fastrcnn_loss(class_logits, box_regression, labels, meta_label, regression_t
         box_loss (Tensor)
     """
     # class logits split: 3
-    data_classlo = class_logits[0]
-    meta_classlo = class_logits[1]
-    cos_lo = class_logits[2]
-    N, num_classes = data_classlo.shape
+    if phase == 1:
+        data_classlo = class_logits[0]
+        meta_classlo = class_logits[1]
+    cos_lo = class_logits[-1]
 
     # labels filter: <16
     labels = torch.cat(labels, dim=0)
@@ -35,7 +35,8 @@ def fastrcnn_loss(class_logits, box_regression, labels, meta_label, regression_t
 
     proper_ind=[True if (la in meta_label or la==0) else False for la in labels]
     # filter proposals in logits
-    data_classlo_=data_classlo[proper_ind]
+    if phase==1:
+        data_classlo_=data_classlo[proper_ind]
     cos_lo_=cos_lo[proper_ind]
     labels_=labels[proper_ind]
     box_regression_ = box_regression[proper_ind]
@@ -43,16 +44,21 @@ def fastrcnn_loss(class_logits, box_regression, labels, meta_label, regression_t
     regression_targets = torch.cat(regression_targets, dim=0)
     regression_targets_ = regression_targets[proper_ind]
     # 计算Linear类别损失信息
-    classification_loss_data = F.cross_entropy(data_classlo_, labels_)
-    classification_loss_meta = F.cross_entropy(meta_classlo, meta_label)
+    if phase ==1:
+        classification_loss_data = F.cross_entropy(data_classlo_, labels_)
+        classification_loss_meta = F.cross_entropy(meta_classlo, meta_label)
+    else:
+        classification_loss_data = Tensor([0]).to(labels_.device)
+        classification_loss_meta = Tensor([0]).to(labels_.device)
 
     # Calculate cosine similarity loss
     back_ind = torch.where(torch.eq(labels_, 0))[0]
     fore_ind = torch.where(torch.gt(labels_, 0))[0]
+    assert len(back_ind)*len(fore_ind)!=0
     nega_cos = cos_lo_[back_ind]
     pos_cos = cos_lo_[fore_ind]
     # Calculate background loss, should all be 0
-    los_nega = torch.sum(nega_cos)/(nega_cos.size()[0]*nega_cos.size()[1])
+    los_nega = torch.sum(nega_cos)/nega_cos.numel()
     # Calculate foreground loss, should be:
     # 1 - sim[i] or sim[i] 
     pos_lab = labels_[fore_ind]
@@ -67,7 +73,7 @@ def fastrcnn_loss(class_logits, box_regression, labels, meta_label, regression_t
         return true_pos_loss+fake_pos_loss, meta_dict
 
     los_pos, meta_dict = cal_pos_loss(pos_cos, pos_lab, meta_label)
-    los_pos = los_pos/(pos_cos.size()[0]*pos_cos.size()[1])
+    los_pos = los_pos/pos_cos.numel()
 
     classification_loss_cos = los_nega + los_pos
     # should be impossible
@@ -76,7 +82,7 @@ def fastrcnn_loss(class_logits, box_regression, labels, meta_label, regression_t
         classification_loss={"Li_data":box_loss,"Li_meta":classification_loss_meta,"Cos":box_loss}
         return classification_loss, box_loss
     else:
-        classification_loss={"Li_data":classification_loss_data,"Li_meta":classification_loss_meta,"Cos":20*classification_loss_cos}
+        classification_loss={"Li_data":classification_loss_data,"Li_meta":classification_loss_meta,"Cos":classification_loss_cos}
 
     # get indices that correspond to the regression targets for
     # the corresponding ground truth labels, to be used with
@@ -92,7 +98,7 @@ def fastrcnn_loss(class_logits, box_regression, labels, meta_label, regression_t
     #     box_loss=Tensor([0]).to(labels_.device)
     #     return classification_loss, box_loss
     # shape=[num_proposal, num_classes]
-    N, num_classes = data_classlo_.shape
+    N, num_classes = cos_lo_.shape
     box_regression_ = box_regression_.reshape(N, -1, 4)
 
     # 计算边界框损失信息
@@ -104,7 +110,7 @@ def fastrcnn_loss(class_logits, box_regression, labels, meta_label, regression_t
         size_average=False,
     ) / labels_.numel()
 
-    return classification_loss, 5*box_loss
+    return classification_loss, 3*box_loss
 
 
 class RoIHeads(torch.nn.Module):
@@ -125,7 +131,8 @@ class RoIHeads(torch.nn.Module):
                  # Faster R-CNN inference
                  score_thresh,        # default: 0.05
                  nms_thresh,          # default: 0.5
-                 detection_per_img):  # default: 100
+                 detection_per_img,   # default: 100
+                 phase):            # default: 1
         super(RoIHeads, self).__init__()
 
         self.box_similarity = box_ops.box_iou
@@ -151,6 +158,7 @@ class RoIHeads(torch.nn.Module):
         self.score_thresh = score_thresh  # default: 0.05
         self.nms_thresh = nms_thresh      # default: 0.5
         self.detection_per_img = detection_per_img  # default: 100
+        self.phase = phase #default: 1
 
     def assign_targets_to_proposals(self, proposals, gt_boxes, gt_labels):
         # type: (List[Tensor], List[Tensor], List[Tensor]) -> Tuple[List[Tensor], List[Tensor]]
@@ -455,7 +463,7 @@ class RoIHeads(torch.nn.Module):
         if self.training:
             assert labels is not None and regression_targets is not None
             loss_classifier, loss_box_reg = fastrcnn_loss(
-                class_logits, box_regression, labels, meta_label, regression_targets)
+                class_logits, box_regression, labels, meta_label, regression_targets, self.phase)
             losses = {
                 "loss_classifier": loss_classifier,
                 "loss_box_reg": loss_box_reg

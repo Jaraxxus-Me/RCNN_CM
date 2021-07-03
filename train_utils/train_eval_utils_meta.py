@@ -119,6 +119,7 @@ def evaluate(model, data_loader, meta_loader, device):
 
         targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
         prntar = [{k: v.to(device) for k, v in t.items()} for t in prntar]
+        class_prototype = model([prnims],[prntar],get_prototype=True)
         protolabel=[]
         for b in range(len(images)):
             for la in targets[b]["labels"]:

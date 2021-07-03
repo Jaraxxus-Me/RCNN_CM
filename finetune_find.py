@@ -7,10 +7,12 @@ import torchvision
 import transforms
 from network_files import Find, AnchorsGenerator
 from backbone import MobileNetV2, vgg, resnet101
+from finetune_data import MetaDataset, FtDataSet
 from my_dataset import VOCDataSet
-from metadata import MetaDataset
-from train_utils import train_eval_utils_meta as utils
 from train_utils.config import cfg
+from train_utils import train_eval_utils_meta as utils
+from collections import OrderedDict
+
 
 def create_model(num_classes, phase):
     # https://download.pytorch.org/models/vgg16-397923af.pth
@@ -41,13 +43,14 @@ def create_model(num_classes, phase):
 
 
 def main(args):
-    #config device
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     print("Using {} device training.".format(device.type))
 
-    if not os.path.exists("find_r"):
-        os.makedirs("find_r")
-    results_file = "find_r/results{}.txt".format(datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
+    # 用来保存coco_info的文件
+    results_file = "find_r/fine_results{}.txt".format(datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
+
+    # 检查保存权重文件夹是否存在
+    assert os.path.exists(args.resume)
 
     data_transform = {
         "train": transforms.Compose([transforms.ToTensor(),
@@ -55,105 +58,80 @@ def main(args):
         "val": transforms.Compose([transforms.ToTensor()])
     }
 
+    #dataset config
     VOC_root = args.data_path  # VOCdevkit
+    shots = args.shots
+    if args.meta_type == 1:  #  use the first sets of all classes
+        metaclass = cfg.TRAIN.ALLCLASSES_FIRST
+    if args.meta_type == 2:  #  use the second sets of all classes
+        metaclass = cfg.TRAIN.ALLCLASSES_SECOND
+    if args.meta_type == 3:  #  use the third sets of all classes
+        metaclass = cfg.TRAIN.ALLCLASSES_THIRD
+    img_set = [('2007', 'trainval')]
     # check voc root
     if os.path.exists(os.path.join(VOC_root, "VOCdevkit")) is False:
         raise FileNotFoundError("VOCdevkit dose not in path:'{}'.".format(VOC_root))
 
-    # load dataset
-    if args.phase == 1:
-        # First phase only use the base classes, each class has 200 class data
-        shots = 200
-        
-        if args.meta_type == 1:
-            args.train_txt = "voc_2007_train_first_split+voc_2012_train_first_split"
-            metaclass = cfg.TRAIN.BASECLASSES_FIRST
-            allclass = cfg.TRAIN.ALLCLASSES_FIRST
-        elif args.meta_type == 2:
-            args.train_txt = "voc_2007_train_second_split+voc_2012_train_second_split"
-            metaclass = cfg.TRAIN.BASECLASSES_SECOND
-            allclass = cfg.TRAIN.ALLCLASSES_SECOND
-        elif args.meta_type == 3:
-            args.train_txt = "voc_2007_train_third_split+voc_2012_train_third_split"
-            metaclass = cfg.TRAIN.BASECLASSES_THIRD
-            allclass = cfg.TRAIN.ALLCLASSES_THIRD
-    else:
-        # Second phase only use fewshot number of base and novel classes
-        shots = args.shots
-        if args.meta_type == 1:  #  use the first sets of all classes
-            metaclass = cfg.TRAIN.ALLCLASSES_FIRST
-            args.train_txt = "voc_2007_train_first"
-        if args.meta_type == 2:  #  use the second sets of all classes
-            metaclass = cfg.TRAIN.ALLCLASSES_SECOND
-            args.train_txt = "voc_2007_train_second"
-        if args.meta_type == 3:  #  use the third sets of all classes
-            metaclass = cfg.TRAIN.ALLCLASSES_THIRD
-            args.train_txt = "voc_2007_train_third"
+    # load train data set
+    # for baseline metadata is used to generate shots.txt
+    metadata = MetaDataset(VOC_root, img_set, metaclass, shots)
+    metaloader = torch.utils.data.DataLoader(metadata, batch_size=1,
+                                                shuffle=False, num_workers=0, pin_memory=True)
 
-        # load train data set
-    # VOCdevkit -> VOC2012/VOC2007 -> ImageSets -> Main -> train.txt
-    # new dataset, combine VOC2012/VOC2017, train.txt, 8218 images
-    train_data_set = VOCDataSet(VOC_root, metaclass, data_transform["train"], args.train_txt)
+    train_data_set = FtDataSet(VOC_root, metaclass, shots)
     # 注意这里的collate_fn是自定义的，因为读取的数据包括image和targets，不能直接使用默认的方法合成batch
     batch_size = args.bs
-    val_size = args.bs_v
     nw = min([os.cpu_count(), batch_size if batch_size > 1 else 0, 8])  # number of workers
     print('Using %g dataloader workers' % nw)
     train_data_loader = torch.utils.data.DataLoader(train_data_set,
                                                     batch_size=batch_size,
                                                     shuffle=True,
                                                     num_workers=nw,
-                                                    collate_fn=train_data_set.collate_fn)
+                                                    collate_fn=FtDataSet.collate_fn)
 
-    # load validation data set
-    # VOCdevkit -> VOC2012/2007 -> ImageSets -> Main -> val.txt
+    # load validation data set the same, 2012+2007 val.txt
+    batch_size = args.bs_v
     val_data_set = VOCDataSet(VOC_root, metaclass, data_transform["val"], "val.txt")
     val_data_set_loader = torch.utils.data.DataLoader(val_data_set,
-                                                      batch_size=val_size,
+                                                      batch_size=batch_size,
                                                       shuffle=False,
                                                       pin_memory=True,
                                                       num_workers=nw,
                                                       collate_fn=train_data_set.collate_fn)
-
-    # construct the input dataset of cpro network
-    # meta training use data from voc2007+2012
-    if args.phase == 1:
-        img_set = [('2007', 'trainval'), ('2012', 'trainval')]
-    # meta fine-tune use data from voc2007 only
-    else:
-        img_set = [('2007', 'trainval')]
-    metadataset = MetaDataset(VOC_root, img_set, metaclass,
-                                    shots=shots, shuffle=True)
-    metaloader = torch.utils.data.DataLoader(metadataset, batch_size=1,
-                                                shuffle=False, num_workers=0, pin_memory=True)
-
-
-
-    # create model num_classes equal background + meta classes
-    model = create_model(len(metaclass)+1, 1)
-    # print(model)
-
+    # create model num_classes equal background + 20 classes
+    model = create_model(len(metaclass)+1, 2)
     model.to(device)
+    new_state_dict = model.state_dict()
+    print("loading checkpoint %s" % (args.resume))
+    checkpoint = torch.load(args.resume)
 
-    train_loss = []
-    learning_rate = []
-    val_map = []
+    # delete cls layer from trained find
+    for name in list(checkpoint['model'].keys()):
+        if ("roi_heads.box_predictor.cls_score" in name):
+            del checkpoint['model'][name]
+    # load params to model
+    new_state_dict.update(checkpoint['model'])
+    model.load_state_dict(new_state_dict)
+    
+    # unfreeze weights of the last layers, others freeze
+    for name, parameter in model.named_parameters():
+        if ("roi_heads.box_predictor.bbox_pred" in name):
+            parameter.requires_grad = True
+        else:
+            parameter.requires_grad = False
 
-    lr = cfg.TRAIN.LEARNING_RATE
-    params = []
-    for key, value in dict(model.named_parameters()).items():
-        if value.requires_grad:
-            if 'bias' in key:
-                params += [{'params': [value], 'lr': lr * (cfg.TRAIN.DOUBLE_BIAS + 1), \
-                            'weight_decay': cfg.TRAIN.BIAS_DECAY and cfg.TRAIN.WEIGHT_DECAY or 0}]
-            else:
-                params += [{'params': [value], 'lr': lr, 'weight_decay': cfg.TRAIN.WEIGHT_DECAY}]
+    # define optimizer
     params = [p for p in model.parameters() if p.requires_grad]
-    optimizer = torch.optim.SGD(params, lr, momentum=cfg.TRAIN.MOMENTUM)
+    optimizer = torch.optim.SGD(params, lr=0.002,
+                                momentum=0.9, weight_decay=0.0005)
     # learning rate scheduler
     lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer,
                                                    step_size=3,
                                                    gamma=0.33)
+
+    train_loss = []
+    learning_rate = []
+    val_map = []
 
     for epoch in range(args.start_epoch, args.epochs, 1):
         # train for one epoch, printing every 50 iterations
@@ -164,28 +142,28 @@ def main(args):
 
         # update the learning rate
         lr_scheduler.step()
+        if epoch in range(args.epochs)[-2:]:
+            # evaluate on the test dataset of last 2 epochs
+            coco_info = utils.evaluate(model, val_data_set_loader, metaloader, 2, device=device)
 
-        # evaluate on the test dataset
-        coco_info = utils.evaluate(model, val_data_set_loader, metaloader, device=device)
+            # write into txt
+            with open(results_file, "a") as f:
+                # 写入的数据包括coco指标还有loss和learning rate
+                result_info = [str(round(i, 4)) for i in coco_info + [mean_loss.item()]] + [str(round(lr, 6))]
+                txt = "epoch:{} {}".format(epoch, '  '.join(result_info))
+                f.write(txt + "\n")
 
-        # write into txt
-        with open(results_file, "a") as f:
-            # 写入的数据包括coco指标还有loss和learning rate
-            result_info = [str(round(i, 4)) for i in coco_info + [mean_loss.item()]] + [str(round(lr, 6))]
-            txt = "epoch:{} {}".format(epoch, '  '.join(result_info))
-            f.write(txt + "\n")
-
-        val_map.append(coco_info[1])  # pascal mAP
+            val_map.append(coco_info[1])  # pascal mAP
 
         # save weights
-        # 仅保存最后10个epoch的权重
-        if epoch >= 4:
+        # 仅保存最后2个epoch的权重
+        if epoch in range(args.epochs)[-2:]:
             save_files = {
                 'model': model.state_dict(),
                 'optimizer': optimizer.state_dict(),
                 'lr_scheduler': lr_scheduler.state_dict(),
                 'epoch': epoch}
-            torch.save(save_files, os.path.join(args.output_dir,"resnet101-find-{}.pth".format(epoch)))
+            torch.save(save_files, "./fine_find_weight/resnet101-find-{}-{}cls-{}shots.pth".format(epoch,len(metaclass),args.shots))
 
     # plot loss and lr curve
     if len(train_loss) != 0 and len(learning_rate) != 0:
@@ -205,44 +183,36 @@ if __name__ == "__main__":
         description=__doc__)
 
     # 训练设备类型
-    parser.add_argument('--device', default='cuda:0', help='device')
+    parser.add_argument('--device', default='cuda:1', help='device')
     # 训练数据集的根目录(VOCdevkit)
     parser.add_argument('--data_path', default='./', help='dataset')
     # 文件保存地址
-    parser.add_argument('--output_dir', default='./find_weights', help='path where to save')
+    parser.add_argument('--output_dir', default='./fine_find_weight/', help='path where to save')
     # 若需要接着上次训练，则指定上次训练保存权重文件地址
     parser.add_argument('--resume', default='', type=str, help='resume from checkpoint')
     # 指定接着从哪个epoch数开始训练
     parser.add_argument('--start_epoch', default=0, type=int, help='start epoch')
     # 训练的总epoch数
-    parser.add_argument('--epochs', default=20, type=int, metavar='N',
+    parser.add_argument('--epochs', default=10, type=int, metavar='N',
                         help='number of total epochs to run')
-    # traing phase (1/2)
-    parser.add_argument('--phase', default=1, type=int,
-                        help='which phase of meta learning, 1: meta train, 2: meta fine tune')
     # split (1/2/3)
     parser.add_argument('--meta_type', default=1, type=int,
                         help='which split of VOC to implement, 1, 2, or 3')
     # shots
-    parser.add_argument('--shots', default=10, type=int,
+    parser.add_argument('--shots', default=1, type=int,
                         help='how many shots in few-shot learning')
-    # shots
-    parser.add_argument('--meta_train', default=True, type=bool,
-                        help='is doing meta training/fine tuning?')
     # 训练的batch size
-    parser.add_argument('--bs', default=1, type=int, metavar='N',
+    parser.add_argument('--bs', default=2, type=int, metavar='N',
                         help='batch size when training.')
     # validation batch size
     parser.add_argument('--bs_v', default=1, type=int, metavar='N',
                         help='batch size when training.')
-    # metadata batch size
+        # metadata batch size
     parser.add_argument('--metabs', default=2, type=int, metavar='N',
                         help='batch size when training.')
     # weight of cls loss during training
-    parser.add_argument('--cls', default=0.1, type=float,
+    parser.add_argument('--cls', default=0.5, type=float,
                         help='weight of cls loss during training')
-
-
     args = parser.parse_args()
     print(args)
 

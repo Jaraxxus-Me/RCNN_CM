@@ -26,7 +26,7 @@ class MetaRCNNBase(nn.Module):
             the model
     """
 
-    def __init__(self, backbone, rpn, roi_heads, transform):
+    def __init__(self, backbone, rpn, roi_heads, transform, phase):
         super(MetaRCNNBase, self).__init__()
         self.transform = transform
         self.backbone = nn.Sequential(backbone.conv1, backbone.bn1, backbone.relu, backbone.maxpool,
@@ -54,6 +54,8 @@ class MetaRCNNBase(nn.Module):
         self.roi_heads = roi_heads
         # used only on torchscript mode
         self._has_warned = False
+        self.phase = phase
+        self.class_prototype=None
 
     def train(self, mode=True):
         # Override train so that the training mode is set as we want
@@ -78,8 +80,8 @@ class MetaRCNNBase(nn.Module):
 
         return detections
 
-    def forward(self, images, targets=None):
-        # type: (List[Tensor], Optional[List[Dict[str, Tensor]]]) -> Tuple[Dict[str, Tensor], List[Dict[str, Tensor]]]
+    def forward(self, images, targets=None, get_pro=False):
+        # type: (List[Tensor], Optional[List[Dict[str, Tensor]]], Optional[Bool]) -> Tuple[Dict[str, Tensor], List[Dict[str, Tensor]]]
         """
         Arguments:
             images (list[Tensor]): images to be processed
@@ -107,16 +109,29 @@ class MetaRCNNBase(nn.Module):
                 else:
                     raise ValueError("Expected target boxes to be of type "
                                      "Tensor, got {:}.".format(type(boxes)))
-
-        original_image_sizes = torch.jit.annotate(List[Tuple[int, int]], [])
-        for img in images[0:-1]:
-            val = img.shape[-2:]
-            assert len(val) == 2  # 防止输入的是个一维向量
-            original_image_sizes.append((val[0], val[1]))
+        if not get_pro:
+            original_image_sizes = torch.jit.annotate(List[Tuple[int, int]], [])
+            for img in images[0:-1]:
+                val = img.shape[-2:]
+                assert len(val) == 2  # 防止输入的是个一维向量
+                original_image_sizes.append((val[0], val[1]))
         # original_image_sizes = [img.shape[-2:] for img in images]
         # prn_data are support images
         # ims are query images
         # prn_target are support bboxes
+
+        if get_pro:
+            prn_data = images[-1]
+            prn_target = targets[-1]
+            prn_data, prn_target = self.transform(prn_data, prn_target)  # 对support图像进行预处理
+            class_proto = OrderedDict()
+            for data, tar in zip(prn_data, prn_target):
+                proto_feat = self.backbone(data.tensors) # c * 1280 * 7 * 7
+                proto_feat = OrderedDict([('0', proto_feat)])  # 若在多层特征层上预测，传入的就是一个有序字典
+                proto_boxes = [tar["boxes"].to(proto_feat["0"].dtype)]
+                class_proto[tar["labels"]] = self.roi_heads.box_roi_pool(proto_feat, proto_boxes, prnimage_shapes)
+            return class_proto
+                
 
         prn_data = images[-1]
         prn_target = targets[-1]
@@ -127,12 +142,14 @@ class MetaRCNNBase(nn.Module):
             tars = targets[0:-1]
 
         images, targets = self.transform(ims, tars)  # 对query图像进行预处理
-        prn_data, prn_target = self.transform(prn_data, prn_target)  # 对support图像进行预处理
+        if self.class_prototype==None:
+            prn_data, prn_target = self.transform(prn_data, prn_target)  # 对support图像进行预处理
 
         # print(images.tensors.shape)
         features = self.backbone(images.tensors)  # 将图像输入backbone得到特征图
         # get proto_feature
-        proto_feat = self.backbone(prn_data.tensors) # c * 1280 * 7 * 7
+        if self.class_prototype==None:
+            proto_feat = self.backbone(prn_data.tensors) # c * 1280 * 7 * 7
 
         if isinstance(features, torch.Tensor):  # 若只在一层特征层上预测，将feature放入有序字典中，并编号为‘0’
             features = OrderedDict([('0', features)])  # 若在多层特征层上预测，传入的就是一个有序字典
@@ -145,8 +162,10 @@ class MetaRCNNBase(nn.Module):
 
         # proto = self.box_head(proto_feat)
         # 将rpn生成的数据以及标注target信息传入fast rcnn后半部分
-        detections, detector_losses = self.roi_heads(features, proto_feat, proposals, images.image_sizes, prn_data.image_sizes, targets, prn_target)
-
+        if self.class_prototype==None:
+            detections, detector_losses = self.roi_heads(features, proto_feat, proposals, images.image_sizes, prn_data.image_sizes, targets, prn_target, self.class_prototype)
+        else:
+            detections, detector_losses = self.roi_heads(features, proto_feat, proposals, images.image_sizes, prn_data.image_sizes, targets, prn_target, self.class_prototype)
         # 对网络的预测结果进行后处理（主要将bboxes还原到原图像尺度上）
         detections = self.transform.postprocess(detections, images.image_sizes, original_image_sizes)
 
@@ -217,11 +236,12 @@ class FindPredictor(nn.Module):
         num_classes (int): number of output classes (including background)
     """
 
-    def __init__(self, in_channels, num_classes):
+    def __init__(self, in_channels, num_classes, phase):
         super(FindPredictor, self).__init__()
         self.cls_score = nn.Linear(in_channels, num_classes)
         self.bbox_pred = nn.Linear(in_channels, 4)
         self.cos_score = PairwiseCosine()
+        self.phase = phase
         # self.reweight = nn.Linear(2*num_classes, num_classes)
 
     def forward(self, r1, r2, c1, c2, meta_tar):
@@ -235,8 +255,12 @@ class FindPredictor(nn.Module):
         # cls branch
         c1 = c1.flatten(start_dim=1)
         c2 = c2.flatten(start_dim=1)
-        meta_score = self.cls_score(c2)
-        data_score = self.cls_score(c1)
+        if self.phase==1:
+            meta_score = self.cls_score(c2)
+            data_score = self.cls_score(c1)
+        else:
+            meta_score = None
+            data_score = None
         cos_sim = self.cos_score(c1,c2)
         cos_sim = cos_sim.squeeze(0)
         # def remap_s(cos_martix, sc_matrix, cls, training):
@@ -363,7 +387,7 @@ class Find(MetaRCNNBase):
                  box_score_thresh=0.05, box_nms_thresh=0.5, box_detections_per_img=100,
                  box_fg_iou_thresh=0.5, box_bg_iou_thresh=0.5,   # fast rcnn计算误差时，采集正负样本设置的阈值
                  box_batch_size_per_image=512, box_positive_fraction=0.25,  # fast rcnn计算误差时采样的样本数，以及正样本占所有样本的比例
-                 bbox_reg_weights=None):
+                 bbox_reg_weights=None, phase=1, class_prototype=None):
         if not hasattr(backbone, "out_channels"):
             raise ValueError(
                 "backbone should contain an attribute out_channels"
@@ -439,7 +463,7 @@ class Find(MetaRCNNBase):
             representation_size = 1024
             box_predictor = FindPredictor(
                 representation_size,
-                num_classes)
+                num_classes, phase)
 
         # 将roi pooling, box_head以及box_predictor结合在一起
         roi_heads = RoIHeads(
@@ -448,7 +472,7 @@ class Find(MetaRCNNBase):
             box_fg_iou_thresh, box_bg_iou_thresh,  # 0.5  0.5
             box_batch_size_per_image, box_positive_fraction,  # 512  0.25
             bbox_reg_weights,
-            box_score_thresh, box_nms_thresh, box_detections_per_img)  # 0.05  0.5  100
+            box_score_thresh, box_nms_thresh, box_detections_per_img, phase)  # 0.05  0.5  100
 
         if image_mean is None:
             image_mean = [0.485, 0.456, 0.406]
@@ -458,5 +482,5 @@ class Find(MetaRCNNBase):
         # 对数据进行标准化，缩放，打包成batch等处理部分
         transform = GeneralizedRCNNTransform(min_size, max_size, image_mean, image_std)
         # box_head is for proto feature
-        super(Find, self).__init__(backbone, rpn, roi_heads, transform)
+        super(Find, self).__init__(backbone, rpn, roi_heads, transform, phase, class_prototype)
 
