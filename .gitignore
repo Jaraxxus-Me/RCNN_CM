@@ -36,4 +36,5 @@ env.bak/
 venv.bak/
 
 *.pth
+*.txt
 run/
