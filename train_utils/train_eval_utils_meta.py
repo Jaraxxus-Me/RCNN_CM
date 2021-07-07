@@ -1,6 +1,8 @@
 import math
 import sys
 import time
+import os
+import pickle
 
 import torch
 from torch.autograd import Variable
@@ -92,7 +94,7 @@ def train_one_epoch(model, optimizer, data_loader, meta_loader, device, epoch,
 
 
 @torch.no_grad()
-def evaluate(model, data_loader, meta_loader, device):
+def evaluate(model, data_loader, meta_loader, phase, device):
     n_threads = torch.get_num_threads()
     # FIXME remove this and make paste_masks_in_image run on the GPU
     torch.set_num_threads(1)
@@ -105,6 +107,7 @@ def evaluate(model, data_loader, meta_loader, device):
     iou_types = _get_iou_types(model)
     coco_evaluator = CocoEvaluator(coco, iou_types)
     meta_iter = iter(meta_loader)
+    created=False
     for image, targets in metric_logger.log_every(data_loader, 100, header):
         try:
             prndata, prncls, prntar = next(meta_iter)
@@ -119,29 +122,43 @@ def evaluate(model, data_loader, meta_loader, device):
 
         targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
         prntar = [{k: v.to(device) for k, v in t.items()} for t in prntar]
-        class_prototype = model([prnims],[prntar],get_prototype=True)
-        protolabel=[]
-        for b in range(len(images)):
-            for la in targets[b]["labels"]:
-                if la.item() not in protolabel:
-                    protolabel.append(la.item())
-        protoim=[]
-        prototar=[]
-        for l in protolabel:
-            protoim.append(prnims[l-1])
-            prototar.append(prntar[l-1])
-            # every image must have a prototype
-        images.append(protoim)
-        prntar=[prototar]
-        # 当使用CPU时，跳过GPU相关指令
-        if device != torch.device("cpu"):
-            torch.cuda.synchronize(device)
+        if phase==2:
+            if not created:
+            # during finetuning, last epoch, eval, save class_prototype 
+                print("calculating per class prototype...")   
+                class_proto = model([prnims],[prntar],get_pro=True)
+                created = True
+                print("done!")
+            model_time = time.time()
+            # offering the model test images and class prototypes
+            outputs = model(images, class_prototype = class_proto)
+            outputs = [{k: v.to(cpu_device) for k, v in t.items()} for t in outputs]
+            model_time = time.time() - model_time
+        else:
+            # during phase 1 eval:
+            class_proto = None
+            protolabel=[]
+            for b in range(len(images)):
+                for la in targets[b]["labels"]:
+                    if la.item() not in protolabel:
+                        protolabel.append(la.item())
+            protoim=[]
+            prototar=[]
+            for l in protolabel:
+                protoim.append(prnims[l-1])
+                prototar.append(prntar[l-1])
+                # every image must have a prototype
+            images.append(protoim)
+            prntar=[prototar]
+            # 当使用CPU时，跳过GPU相关指令
+            if device != torch.device("cpu"):
+                torch.cuda.synchronize(device)
 
-        model_time = time.time()
-        outputs = model(images,prntar)
+            model_time = time.time()
+            outputs = model(images,prntar)
 
-        outputs = [{k: v.to(cpu_device) for k, v in t.items()} for t in outputs]
-        model_time = time.time() - model_time
+            outputs = [{k: v.to(cpu_device) for k, v in t.items()} for t in outputs]
+            model_time = time.time() - model_time
 
         res = {target["image_id"].item(): output for target, output in zip(targets, outputs)}
 
@@ -162,7 +179,7 @@ def evaluate(model, data_loader, meta_loader, device):
 
     coco_info = coco_evaluator.coco_eval[iou_types[0]].stats.tolist()  # numpy to list
 
-    return coco_info
+    return coco_info, class_proto
 
 
 def _get_iou_types(model):

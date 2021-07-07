@@ -1,5 +1,6 @@
 import os
 import datetime
+import pickle
 
 import torch
 import torchvision
@@ -115,7 +116,7 @@ def main(args):
     
     # unfreeze weights of the last layers, others freeze
     for name, parameter in model.named_parameters():
-        if ("roi_heads.box_predictor.bbox_pred" in name):
+        if ("roi_heads.box_predictor.bbox_pred" in name) or ("roi_heads.box_head_c.fc7" in name) or ("roi_heads.box_head_r.fc7" in name):
             parameter.requires_grad = True
         else:
             parameter.requires_grad = False
@@ -142,9 +143,20 @@ def main(args):
 
         # update the learning rate
         lr_scheduler.step()
-        if epoch in range(args.epochs)[-2:]:
-            # evaluate on the test dataset of last 2 epochs
-            coco_info = utils.evaluate(model, val_data_set_loader, metaloader, 2, device=device)
+        if epoch == range(args.epochs)[-1]:
+        # evaluate on the test dataset of last 2 epochs
+            coco_info, class_proto_dict = utils.evaluate(model, val_data_set_loader, metaloader, 2, device=device)
+            
+            if class_proto_dict != None:
+                # save class_prototype for test:
+                # mean_class_attentions = {k: sum(v) / len(v) for k, v in class_attentions.items()}
+                save_path = os.path.join(args.output_dir, 'meta_type_{}'.format(args.meta_type))
+                if not os.path.exists(save_path):
+                    os.makedirs(save_path)
+                with open(os.path.join(save_path,
+                                    str(epoch) + '_shots_' + str(shots) + '_mean_class_attentions.pkl'), 'wb') as f:
+                    pickle.dump(class_proto_dict, f, pickle.HIGHEST_PROTOCOL)
+                print('save ' + str(args.shots) + ' mean classes attentions done!')
 
             # write into txt
             with open(results_file, "a") as f:

@@ -407,27 +407,41 @@ class RoIHeads(torch.nn.Module):
 
         return all_boxes, all_scores, all_labels
 
+    # def forward(self,
+    #             features,       # type: Dict[str, Tensor]
+    #             proto_feat,       # type: Dict[str, Tensor]
+    #             proposals,      # type: List[Tensor]
+    #             image_shapes,   # type: List[Tuple[int, int]]
+    #             prnimage_shapes,   # type: List[Tuple[int, int]]
+    #             targets=None,    # type: Optional[List[Dict[str, Tensor]]]
+    #             prn_targets=None    # type: Optional[List[Dict]]
+    #             ):
     def forward(self,
-                features,       # type: Dict[str, Tensor]
-                proto_feat,       # type: Dict[str, Tensor]
-                proposals,      # type: List[Tensor]
-                image_shapes,   # type: List[Tuple[int, int]]
-                prnimage_shapes,   # type: List[Tuple[int, int]]
-                targets=None,    # type: Optional[List[Dict[str, Tensor]]]
-                prn_targets=None    # type: Optional[List[Dict[str, Tensor]]]
-                ):
+            features,       # type: Dict[str, Tensor]
+            proposals,      # type: List[Tensor]
+            image_shapes,   # type: List[Tuple[int, int]]
+            targets=None,    # type: Optional[List[Dict[str, Tensor]]]
+            proto_in=None    # type: Optional[Dict[str, Tensor]]
+            ):
         # type: (...) -> Tuple[List[Dict[str, Tensor]], Dict[str, Tensor]]
         """
         Arguments:
             features (List[Tensor])
-            proto_feat (List[Tensor])
             proposals (List[Tensor[N, 4]])
             image_shapes (List[Tuple[H, W]])
-            prnimage_shapes (List[Tuple[H, W]])
             targets (List[Dict])
-            prn_targets (List[Dict])
+            proto_in (Dict)
+                feature (List[Tensor])
+                tar (List[Dict])
+                sizes (List[Tuple[H, W]])
+                proto (Dict[str, Tensor])
         """
         # 检查targets的数据类型是否正确
+        proto_feat = proto_in["feature"]
+        prnimage_shapes = proto_in["sizes"]
+        prn_targets = proto_in["tar"]
+        class_prototype = proto_in["proto"]
+
         if (targets is not None) and (prn_targets is not None):
             all_targets = targets+prn_targets
             for t in all_targets:
@@ -444,11 +458,14 @@ class RoIHeads(torch.nn.Module):
 
         # 将采集样本通过Multi-scale RoIAlign pooling层
         # box_features_shape: [num_proposals, channel, height, width]
-
-        proto_boxes = [t["boxes"].to(proposals[0].dtype) for t in prn_targets]
+        if class_prototype == None:
+            proto_boxes = [t["boxes"].to(proposals[0].dtype) for t in prn_targets]
+            proto_features = self.box_roi_pool(proto_feat, proto_boxes, prnimage_shapes)
+        else:
+            cls_pro_feat_list = list(class_prototype.values())
+            proto_features = torch.cat(cls_pro_feat_list, dim=0)
 
         box_features = self.box_roi_pool(features, proposals, image_shapes)
-        proto_features = self.box_roi_pool(proto_feat, proto_boxes, prnimage_shapes)
         # 通过roi_pooling后的两层全连接层
         # box_features_shape: [num_proposals, representation_size]
         box_features_r = self.box_head_r(box_features)
@@ -456,7 +473,11 @@ class RoIHeads(torch.nn.Module):
         box_features_c = self.box_head_c(box_features)
         proto_features_c = self.box_head_c(proto_features)
         # 接着分别预测目标类别和边界框回归参数
-        class_logits, box_regression, meta_label = self.box_predictor(box_features_r, proto_features_r, box_features_c, proto_features_c, prn_targets)
+        if prn_targets!=None:
+            meta_label = [prt["labels"][0] for prt in prn_targets]
+        else:
+            meta_label = [prt[0] for prt in list(class_prototype.keys())]
+        class_logits, box_regression = self.box_predictor(box_features_r, proto_features_r, box_features_c, proto_features_c, prn_targets)
 
         result = torch.jit.annotate(List[Dict[str, torch.Tensor]], [])
         losses = {}

@@ -55,7 +55,6 @@ class MetaRCNNBase(nn.Module):
         # used only on torchscript mode
         self._has_warned = False
         self.phase = phase
-        self.class_prototype=None
 
     def train(self, mode=True):
         # Override train so that the training mode is set as we want
@@ -80,8 +79,8 @@ class MetaRCNNBase(nn.Module):
 
         return detections
 
-    def forward(self, images, targets=None, get_pro=False):
-        # type: (List[Tensor], Optional[List[Dict[str, Tensor]]], Optional[Bool]) -> Tuple[Dict[str, Tensor], List[Dict[str, Tensor]]]
+    def forward(self, images, targets=None, get_pro=False, class_prototype=None):
+        # type: (List[Tensor], Optional[List[Dict[str, Tensor]]], Optional[int], Optional[Dict[str,Tensor]]) -> Tuple[Dict[str, Tensor], List[Dict[str, Tensor]]]
         """
         Arguments:
             images (list[Tensor]): images to be processed
@@ -121,51 +120,55 @@ class MetaRCNNBase(nn.Module):
         # prn_target are support bboxes
 
         if get_pro:
+            # during phase 2, before eval, first get class_prototype: Dict{"label": tensor}
+            assert (self.training == False) and (self.phase ==2)
             prn_data = images[-1]
             prn_target = targets[-1]
-            prn_data, prn_target = self.transform(prn_data, prn_target)  # 对support图像进行预处理
             class_proto = OrderedDict()
             for data, tar in zip(prn_data, prn_target):
-                proto_feat = self.backbone(data.tensors) # c * 1280 * 7 * 7
+                cls_data, cls_target = self.transform([data], [tar])  # 对support图像进行预处理
+                proto_feat = self.backbone(cls_data.tensors) # c * 1280 * 7 * 7
                 proto_feat = OrderedDict([('0', proto_feat)])  # 若在多层特征层上预测，传入的就是一个有序字典
-                proto_boxes = [tar["boxes"].to(proto_feat["0"].dtype)]
-                class_proto[tar["labels"]] = self.roi_heads.box_roi_pool(proto_feat, proto_boxes, prnimage_shapes)
+                proto_boxes = [cls_target[0]["boxes"].to(proto_feat["0"].dtype)]
+                class_proto[cls_target[0]["labels"]] = self.roi_heads.box_roi_pool(proto_feat, proto_boxes, cls_data.image_sizes)
             return class_proto
                 
-
-        prn_data = images[-1]
-        prn_target = targets[-1]
-        ims = images[0:-1]
-        if len(targets)==1:# val/test stage, no data target, just meta target
+        if class_prototype!=None:
+            # only true when in seconde phase eval or test, assert only test images are input
+            assert (self.training == False) and (self.phase == 2)
+            ims = images
             tars=None
+            images, targets = self.transform(ims, tars)  # 对query图像进行预处理
+            features = self.backbone(images.tensors)  # 将图像输入backbone得到特征图
+            if isinstance(features, torch.Tensor):  # 若只在一层特征层上预测，将feature放入有序字典中，并编号为‘0’
+                features = OrderedDict([('0', features)])  # 若在多层特征层上预测，传入的就是一个有序字典
+            proposals, proposal_losses = self.rpn(images, features, targets)
+            proto_in = {"feature":None, "tar": None, "sizes": None, "proto": class_prototype}
+            detections, detector_losses = self.roi_heads(features, proposals, images.image_sizes, targets, proto_in)
         else:
-            tars = targets[0:-1]
-
-        images, targets = self.transform(ims, tars)  # 对query图像进行预处理
-        if self.class_prototype==None:
+            # for phase 1 training, phase 1 eval, and phase 2 training
+            prn_data = images[-1]
+            prn_target = targets[-1]
+            ims = images[0:-1]
+            if len(targets)==1:# val/test stage, no data target, just meta target
+                tars=None
+            else:
+                tars = targets[0:-1]
+            images, targets = self.transform(ims, tars)  # 对query图像进行预处理
             prn_data, prn_target = self.transform(prn_data, prn_target)  # 对support图像进行预处理
-
-        # print(images.tensors.shape)
-        features = self.backbone(images.tensors)  # 将图像输入backbone得到特征图
-        # get proto_feature
-        if self.class_prototype==None:
+            features = self.backbone(images.tensors)  # 将图像输入backbone得到特征图
+            # get proto_feature
             proto_feat = self.backbone(prn_data.tensors) # c * 1280 * 7 * 7
+            if isinstance(features, torch.Tensor):  # 若只在一层特征层上预测，将feature放入有序字典中，并编号为‘0’
+                features = OrderedDict([('0', features)])  # 若在多层特征层上预测，传入的就是一个有序字典
+                proto_feat = OrderedDict([('0', proto_feat)])  # 若在多层特征层上预测，传入的就是一个有序字典
+            # 将特征层以及标注target信息传入rpn中
+            # proposals: List[Tensor], Tensor_shape: [num_proposals, 4],
+            # 每个proposals是绝对坐标，且为(x1, y1, x2, y2)格式
+            proposals, proposal_losses = self.rpn(images, features, targets)
+            proto_in = {"feature":proto_feat, "tar": prn_target, "sizes": prn_data.image_sizes, "proto": None}
+            detections, detector_losses = self.roi_heads(features, proposals, images.image_sizes, targets, proto_in)
 
-        if isinstance(features, torch.Tensor):  # 若只在一层特征层上预测，将feature放入有序字典中，并编号为‘0’
-            features = OrderedDict([('0', features)])  # 若在多层特征层上预测，传入的就是一个有序字典
-            proto_feat = OrderedDict([('0', proto_feat)])  # 若在多层特征层上预测，传入的就是一个有序字典
-        # 将特征层以及标注target信息传入rpn中
-        # proposals: List[Tensor], Tensor_shape: [num_proposals, 4],
-        # 每个proposals是绝对坐标，且为(x1, y1, x2, y2)格式
-        proposals, proposal_losses = self.rpn(images, features, targets)
-
-
-        # proto = self.box_head(proto_feat)
-        # 将rpn生成的数据以及标注target信息传入fast rcnn后半部分
-        if self.class_prototype==None:
-            detections, detector_losses = self.roi_heads(features, proto_feat, proposals, images.image_sizes, prn_data.image_sizes, targets, prn_target, self.class_prototype)
-        else:
-            detections, detector_losses = self.roi_heads(features, proto_feat, proposals, images.image_sizes, prn_data.image_sizes, targets, prn_target, self.class_prototype)
         # 对网络的预测结果进行后处理（主要将bboxes还原到原图像尺度上）
         detections = self.transform.postprocess(detections, images.image_sizes, original_image_sizes)
 
@@ -249,9 +252,6 @@ class FindPredictor(nn.Module):
         # r2: proto feature reg
         # c1: box feature cls
         # c2: proto feature cls
-        meta_cls = [t["labels"][0] for t in meta_tar]
-        # if x1.dim() == 4:
-        #     assert list(x1.shape[2:]) == [1, 1]
         # cls branch
         c1 = c1.flatten(start_dim=1)
         c2 = c2.flatten(start_dim=1)
@@ -263,18 +263,6 @@ class FindPredictor(nn.Module):
             data_score = None
         cos_sim = self.cos_score(c1,c2)
         cos_sim = cos_sim.squeeze(0)
-        # def remap_s(cos_martix, sc_matrix, cls, training):
-        #     if training:
-        #         # for training, other class add nother to loss
-        #         new_cos = torch.ones_like(sc_matrix)
-        #     else:
-        #         # for eval, other class score is zero
-        #         new_cos = torch.zeros_like(sc_matrix)
-        #     for i,c in enumerate(cls):
-        #         new_cos[:, c[0]]=cos_martix[:, i]
-        #     return new_cos
-
-        # cos_score=remap_s(cos_sim, data_score, meta_cls, training)
         cls_scores=[data_score, meta_score, cos_sim]
         # reg branch
         p = r1.size()[0]
@@ -286,7 +274,7 @@ class FindPredictor(nn.Module):
         r = r1.add(r2)
         bbox_deltas = self.bbox_pred(r)
         bbox_deltas=bbox_deltas.view(p,-1)
-        return cls_scores, bbox_deltas, meta_cls
+        return cls_scores, bbox_deltas
 
 
 class Find(MetaRCNNBase):
@@ -482,5 +470,5 @@ class Find(MetaRCNNBase):
         # 对数据进行标准化，缩放，打包成batch等处理部分
         transform = GeneralizedRCNNTransform(min_size, max_size, image_mean, image_std)
         # box_head is for proto feature
-        super(Find, self).__init__(backbone, rpn, roi_heads, transform, phase, class_prototype)
+        super(Find, self).__init__(backbone, rpn, roi_heads, transform, phase)
 
