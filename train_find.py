@@ -227,7 +227,7 @@ def main(args):
             learning_rate.append(lr)
 
             # evaluate on the test dataset
-            coco_info = utils.evaluate(model, val_data_set_loader, metaloader, 2, device=device)
+            coco_info, pro = utils.evaluate(model, val_data_set_loader, metaloader, 2, device=device)
 
             # write into txt
             with open(results_file, "a") as f:
@@ -235,6 +235,7 @@ def main(args):
                 result_info = [str(round(i, 4)) for i in coco_info + [mean_loss.item()]] + [str(round(lr, 6))]
                 txt = "epoch:{} {}".format(epoch, '  '.join(result_info))
                 f.write(txt + "\n")
+
 
             val_map.append(coco_info[1])  # pascal mAP
 
@@ -278,7 +279,7 @@ def main(args):
             # write into txt
             with open(results_file, "a") as f:
                 # 写入的数据包括coco指标还有loss和learning rate
-                result_info = [str(round(i, 4)) for i in coco_info + [mean_loss.item()]] + [str(round(lr, 6))]
+                result_info, pro = [str(round(i, 4)) for i in coco_info + [mean_loss.item()]] + [str(round(lr, 6))]
                 txt = "epoch:{} {}".format(epoch, '  '.join(result_info))
                 f.write(txt + "\n")
 
