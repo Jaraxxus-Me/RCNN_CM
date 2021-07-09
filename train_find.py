@@ -13,17 +13,15 @@ from train_utils import train_eval_utils_meta as utils
 from train_utils.config import cfg
 
 def create_model(num_classes, phase):
-    # https://download.pytorch.org/models/vgg16-397923af.pth
-    # 如果使用vgg16的话就下载对应预训练权重并取消下面注释，接着把mobilenetv2模型对应的两行代码注释掉
-    # vgg_feature = vgg(model_name="vgg16", weights_path="./backbone/vgg16.pth").features
-    # backbone = torch.nn.Sequential(*list(vgg_feature._modules.values())[:-1])  # 删除features中最后一个Maxpool层
-    # backbone.out_channels = 512
-
-    backbone = resnet101()
-    print("Loading pretrained weights from %s" % ("./backbone/resnet101.pth"))
-    state_dict = torch.load("./backbone/resnet101.pth")
-    backbone.load_state_dict({k: v for k, v in state_dict.items() if k in backbone.state_dict()})
-    backbone.out_channels = 2048
+#     # https://download.pytorch.org/models/vgg16-397923af.pth
+#     # 如果使用vgg16的话就下载对应预训练权重并取消下面注释，接着把mobilenetv2模型对应的两行代码注释掉
+#     # vgg_feature = vgg(model_name="vgg16", weights_path="./backbone/vgg16.pth").features
+#     # backbone = torch.nn.Sequential(*list(vgg_feature._modules.values())[:-1])  # 删除features中最后一个Maxpool层
+#     # backbone.out_channels = 512
+#     # MobileNet backbone
+    backbone = MobileNetV2(weights_path="./backbone/mobilenet_v2.pth").features
+    backbone.name = "mob"
+    backbone.out_channels = 1280  # 设置对应backbone输出特征矩阵的channels
 
     anchor_generator = AnchorsGenerator(sizes=((32, 64, 128, 256, 512),),
                                         aspect_ratios=((0.5, 1.0, 2.0),))
@@ -36,6 +34,25 @@ def create_model(num_classes, phase):
                        num_classes=num_classes,
                        rpn_anchor_generator=anchor_generator,
                        box_roi_pool=roi_pooler, phase=phase)
+#     # ResNet backbone
+    # backbone = resnet101()
+    # backbone.name = "res"
+    # print("Loading pretrained weights from %s" % ("./backbone/resnet101.pth"))
+    # state_dict = torch.load("./backbone/resnet101.pth")
+    # backbone.load_state_dict({k: v for k, v in state_dict.items() if k in backbone.state_dict()})
+    # backbone.out_channels = 2048
+
+    # anchor_generator = AnchorsGenerator(sizes=((32, 64, 128, 256, 512),),
+    #                                     aspect_ratios=((0.5, 1.0, 2.0),))
+
+    # roi_pooler = torchvision.ops.MultiScaleRoIAlign(featmap_names=['0'],  # 在哪些特征层上进行roi pooling
+    #                                                 output_size=[7, 7],   # roi_pooling输出特征矩阵尺寸
+    #                                                 sampling_ratio=2)  # 采样率
+
+    # model = Find(backbone=backbone,
+    #                    num_classes=num_classes,
+    #                    rpn_anchor_generator=anchor_generator,
+    #                    box_roi_pool=roi_pooler, phase=phase)
 
     return model
 
@@ -138,64 +155,164 @@ def main(args):
     train_loss = []
     learning_rate = []
     val_map = []
+    # resnet backbone training schedule
+    if model.backbone.name=="res":
+        lr = cfg.TRAIN.LEARNING_RATE
+        params = []
+        for key, value in dict(model.named_parameters()).items():
+            if value.requires_grad:
+                if 'bias' in key:
+                    params += [{'params': [value], 'lr': lr * (cfg.TRAIN.DOUBLE_BIAS + 1), \
+                                'weight_decay': cfg.TRAIN.BIAS_DECAY and cfg.TRAIN.WEIGHT_DECAY or 0}]
+                else:
+                    params += [{'params': [value], 'lr': lr, 'weight_decay': cfg.TRAIN.WEIGHT_DECAY}]
+        params = [p for p in model.parameters() if p.requires_grad]
+        optimizer = torch.optim.SGD(params, lr, momentum=cfg.TRAIN.MOMENTUM)
+        # learning rate scheduler
+        lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer,
+                                                    step_size=3,
+                                                    gamma=0.33)
 
-    lr = cfg.TRAIN.LEARNING_RATE
-    params = []
-    for key, value in dict(model.named_parameters()).items():
-        if value.requires_grad:
-            if 'bias' in key:
-                params += [{'params': [value], 'lr': lr * (cfg.TRAIN.DOUBLE_BIAS + 1), \
-                            'weight_decay': cfg.TRAIN.BIAS_DECAY and cfg.TRAIN.WEIGHT_DECAY or 0}]
+        for epoch in range(args.start_epoch, args.epochs, 1):
+            # train for one epoch, printing every 50 iterations
+            mean_loss, lr = utils.train_one_epoch(model, optimizer, train_data_loader, metaloader,
+                                                device, epoch, print_freq=50, cls_w=args.cls, metabs=args.metabs)
+            train_loss.append(mean_loss.item())
+            learning_rate.append(lr)
+
+            # update the learning rate
+            lr_scheduler.step()
+
+            # evaluate on the test dataset
+            coco_info = utils.evaluate(model, val_data_set_loader, metaloader, 2, device=device)
+
+            # write into txt
+            with open(results_file, "a") as f:
+                # 写入的数据包括coco指标还有loss和learning rate
+                result_info = [str(round(i, 4)) for i in coco_info + [mean_loss.item()]] + [str(round(lr, 6))]
+                txt = "epoch:{} {}".format(epoch, '  '.join(result_info))
+                f.write(txt + "\n")
+
+            val_map.append(coco_info[1])  # pascal mAP
+
+            # save weights
+            # 仅保存最后10个epoch的权重
+            if epoch >= 4:
+                save_files = {
+                    'model': model.state_dict(),
+                    'optimizer': optimizer.state_dict(),
+                    'lr_scheduler': lr_scheduler.state_dict(),
+                    'epoch': epoch}
+                torch.save(save_files, os.path.join(args.output_dir,"resnet101-find-{}.pth".format(epoch)))
+        # mobile net training schedule
+    else:
+        # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+        #  first frozen backbone and train 5 epochs                   #
+        #  首先冻结前置特征提取网络权重（backbone），训练rpn以及最终预测网络部分 #
+        # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+        for param in model.backbone.parameters():
+            param.requires_grad = False
+
+        # define optimizer
+        params = [p for p in model.parameters() if p.requires_grad]
+        optimizer = torch.optim.SGD(params, lr=0.005,
+                                    momentum=0.9, weight_decay=0.0005)
+
+        init_epochs = 5
+        for epoch in range(init_epochs):
+            # train for one epoch, printing every 10 iterations
+            mean_loss, lr = utils.train_one_epoch(model, optimizer, train_data_loader, metaloader,
+                                            device, epoch, print_freq=50, cls_w=args.cls, metabs=args.metabs, warmup=True)
+            train_loss.append(mean_loss.item())
+            learning_rate.append(lr)
+
+            # evaluate on the test dataset
+            coco_info = utils.evaluate(model, val_data_set_loader, metaloader, 2, device=device)
+
+            # write into txt
+            with open(results_file, "a") as f:
+                # 写入的数据包括coco指标还有loss和learning rate
+                result_info = [str(round(i, 4)) for i in coco_info + [mean_loss.item()]] + [str(round(lr, 6))]
+                txt = "epoch:{} {}".format(epoch, '  '.join(result_info))
+                f.write(txt + "\n")
+
+            val_map.append(coco_info[1])  # pascal mAP
+
+        torch.save(model.state_dict(), "./save_weights/pretrain.pth")
+
+        # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+        #  second unfrozen backbone and train all network     #
+        #  解冻前置特征提取网络权重（backbone），接着训练整个网络权重  #
+        # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+
+        # 冻结backbone部分底层权重
+        for name, parameter in model.backbone.named_parameters():
+            split_name = name.split(".")[0]
+            if split_name in ["0", "1", "2", "3"]:
+                parameter.requires_grad = False
             else:
-                params += [{'params': [value], 'lr': lr, 'weight_decay': cfg.TRAIN.WEIGHT_DECAY}]
-    params = [p for p in model.parameters() if p.requires_grad]
-    optimizer = torch.optim.SGD(params, lr, momentum=cfg.TRAIN.MOMENTUM)
-    # learning rate scheduler
-    lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer,
-                                                   step_size=3,
-                                                   gamma=0.33)
+                parameter.requires_grad = True
 
-    for epoch in range(args.start_epoch, args.epochs, 1):
-        # train for one epoch, printing every 50 iterations
-        mean_loss, lr = utils.train_one_epoch(model, optimizer, train_data_loader, metaloader,
-                                              device, epoch, print_freq=50,cls_w=args.cls, metabs=args.metabs)
-        train_loss.append(mean_loss.item())
-        learning_rate.append(lr)
+        # define optimizer
+        params = [p for p in model.parameters() if p.requires_grad]
+        optimizer = torch.optim.SGD(params, lr=0.005,
+                                    momentum=0.9, weight_decay=0.0005)
+        # learning rate scheduler
+        lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer,
+                                                    step_size=3,
+                                                    gamma=0.33)
+        num_epochs = args.epochs
+        for epoch in range(init_epochs, num_epochs+init_epochs, 1):
+            # train for one epoch, printing every 50 iterations
+            mean_loss, lr = utils.train_one_epoch(model, optimizer, train_data_loader, metaloader,
+                                            device, epoch, print_freq=50,cls_w=args.cls, metabs=args.metabs)
+            train_loss.append(mean_loss.item())
+            learning_rate.append(lr)
 
-        # update the learning rate
-        lr_scheduler.step()
+            # update the learning rate
+            lr_scheduler.step()
 
-        # evaluate on the test dataset
-        coco_info = utils.evaluate(model, val_data_set_loader, metaloader, device=device)
+            # evaluate on the test dataset
+            coco_info = utils.evaluate(model, val_data_set_loader, metaloader, 2, device=device)
 
-        # write into txt
-        with open(results_file, "a") as f:
-            # 写入的数据包括coco指标还有loss和learning rate
-            result_info = [str(round(i, 4)) for i in coco_info + [mean_loss.item()]] + [str(round(lr, 6))]
-            txt = "epoch:{} {}".format(epoch, '  '.join(result_info))
-            f.write(txt + "\n")
+            # write into txt
+            with open(results_file, "a") as f:
+                # 写入的数据包括coco指标还有loss和learning rate
+                result_info = [str(round(i, 4)) for i in coco_info + [mean_loss.item()]] + [str(round(lr, 6))]
+                txt = "epoch:{} {}".format(epoch, '  '.join(result_info))
+                f.write(txt + "\n")
 
-        val_map.append(coco_info[1])  # pascal mAP
+            val_map.append(coco_info[1])  # pascal mAP
 
-        # save weights
-        # 仅保存最后10个epoch的权重
-        if epoch >= 4:
-            save_files = {
-                'model': model.state_dict(),
-                'optimizer': optimizer.state_dict(),
-                'lr_scheduler': lr_scheduler.state_dict(),
-                'epoch': epoch}
-            torch.save(save_files, os.path.join(args.output_dir,"resnet101-find-{}.pth".format(epoch)))
+            # save weights
+            # 仅保存最后5个epoch的权重
+            if epoch in range(num_epochs+init_epochs)[-5:]:
+                save_files = {
+                    'model': model.state_dict(),
+                    'optimizer': optimizer.state_dict(),
+                    'lr_scheduler': lr_scheduler.state_dict(),
+                    'epoch': epoch}
+                torch.save(save_files, "{}/mobile-find-{}.pth".format(args.output_dir, epoch))
+            # plot loss and lr curve
+            if len(train_loss) != 0 and len(learning_rate) != 0:
+                from plot_curve import plot_loss_and_lr
+                plot_loss_and_lr(train_loss, learning_rate)
 
-    # plot loss and lr curve
-    if len(train_loss) != 0 and len(learning_rate) != 0:
-        from plot_curve import plot_loss_and_lr
-        plot_loss_and_lr(train_loss, learning_rate)
+            # plot mAP curve
+            if len(val_map) != 0:
+                from plot_curve import plot_map
+                plot_map(val_map)
 
-    # plot mAP curve
-    if len(val_map) != 0:
-        from plot_curve import plot_map
-        plot_map(val_map)
+
+            # plot loss and lr curve
+            if len(train_loss) != 0 and len(learning_rate) != 0:
+                from plot_curve import plot_loss_and_lr
+                plot_loss_and_lr(train_loss, learning_rate)
+
+            # plot mAP curve
+            if len(val_map) != 0:
+                from plot_curve import plot_map
+                plot_map(val_map)
 
 
 if __name__ == "__main__":
@@ -230,16 +347,16 @@ if __name__ == "__main__":
     parser.add_argument('--meta_train', default=True, type=bool,
                         help='is doing meta training/fine tuning?')
     # 训练的batch size
-    parser.add_argument('--bs', default=1, type=int, metavar='N',
+    parser.add_argument('--bs', default=4, type=int, metavar='N',
                         help='batch size when training.')
     # validation batch size
-    parser.add_argument('--bs_v', default=1, type=int, metavar='N',
+    parser.add_argument('--bs_v', default=4, type=int, metavar='N',
                         help='batch size when training.')
     # metadata batch size
-    parser.add_argument('--metabs', default=2, type=int, metavar='N',
+    parser.add_argument('--metabs', default=6, type=int, metavar='N',
                         help='batch size when training.')
     # weight of cls loss during training
-    parser.add_argument('--cls', default=0.1, type=float,
+    parser.add_argument('--cls', default=0.25, type=float,
                         help='weight of cls loss during training')
 
 

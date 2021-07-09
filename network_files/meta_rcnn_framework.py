@@ -29,26 +29,30 @@ class MetaRCNNBase(nn.Module):
     def __init__(self, backbone, rpn, roi_heads, transform, phase):
         super(MetaRCNNBase, self).__init__()
         self.transform = transform
-        self.backbone = nn.Sequential(backbone.conv1, backbone.bn1, backbone.relu, backbone.maxpool,
-                                       backbone.layer1, backbone.layer2, backbone.layer3, backbone.layer4)
-        # Fix blocks
-        for p in self.backbone[0].parameters(): p.requires_grad = False
-        for p in self.backbone[1].parameters(): p.requires_grad = False
+        if backbone.name == "mob":
+            # backbone freeze of mobilenet is defined in train_find.py, dynamic
+            self.backbone = backbone
+        else:
+            self.backbone = nn.Sequential(backbone.conv1, backbone.bn1, backbone.relu, backbone.maxpool,
+                                        backbone.layer1, backbone.layer2, backbone.layer3, backbone.layer4)
+            # Fix blocks
+            for p in self.backbone[0].parameters(): p.requires_grad = False
+            for p in self.backbone[1].parameters(): p.requires_grad = False
 
-        assert (0 <= cfg.RESNET.FIXED_BLOCKS < 5)
-        if cfg.RESNET.FIXED_BLOCKS >= 4:
-            for p in self.backbone[-1].parameters(): p.requires_grad = False
-        if cfg.RESNET.FIXED_BLOCKS >= 3:
-            for p in self.backbone[6].parameters(): p.requires_grad = False
-        if cfg.RESNET.FIXED_BLOCKS >= 2:
-            for p in self.backbone[5].parameters(): p.requires_grad = False
-        if cfg.RESNET.FIXED_BLOCKS >= 1:
-            for p in self.backbone[4].parameters(): p.requires_grad = False
-        def set_bn_fix(m):
-            classname = m.__class__.__name__
-            if classname.find('BatchNorm') != -1:
-                for p in m.parameters(): p.requires_grad = False
-        self.backbone.apply(set_bn_fix)
+            assert (0 <= cfg.RESNET.FIXED_BLOCKS < 5)
+            if cfg.RESNET.FIXED_BLOCKS >= 4:
+                for p in self.backbone[-1].parameters(): p.requires_grad = False
+            if cfg.RESNET.FIXED_BLOCKS >= 3:
+                for p in self.backbone[6].parameters(): p.requires_grad = False
+            if cfg.RESNET.FIXED_BLOCKS >= 2:
+                for p in self.backbone[5].parameters(): p.requires_grad = False
+            if cfg.RESNET.FIXED_BLOCKS >= 1:
+                for p in self.backbone[4].parameters(): p.requires_grad = False
+            def set_bn_fix(m):
+                classname = m.__class__.__name__
+                if classname.find('BatchNorm') != -1:
+                    for p in m.parameters(): p.requires_grad = False
+            self.backbone.apply(set_bn_fix)
         # use the layers before avg_pool as backbone, a bit different from FSDet
         self.rpn = rpn
         self.roi_heads = roi_heads
@@ -56,20 +60,21 @@ class MetaRCNNBase(nn.Module):
         self._has_warned = False
         self.phase = phase
 
-    def train(self, mode=True):
-        # Override train so that the training mode is set as we want
-        nn.Module.train(self, mode)
-        if mode:
-            # Set fixed blocks to be in eval mode
-            self.backbone.eval()
-            self.backbone[5].train()
-            self.backbone[6].train()
+    # for resnet please remember override train()
+    # def train(self, mode=True):
+    #     # Override train so that the training mode is set as we want
+    #     nn.Module.train(self, mode)
+    #     if mode:
+    #         # Set fixed blocks to be in eval mode
+    #         self.backbone.eval()
+    #         self.backbone[5].train()
+    #         self.backbone[6].train()
 
-            def set_bn_eval(m):
-                classname = m.__class__.__name__
-                if classname.find('BatchNorm') != -1:
-                    m.eval()
-            self.backbone.apply(set_bn_eval)
+    #         def set_bn_eval(m):
+    #             classname = m.__class__.__name__
+    #             if classname.find('BatchNorm') != -1:
+    #                 m.eval()
+    #         self.backbone.apply(set_bn_eval)
 
     @torch.jit.unused
     def eager_outputs(self, losses, detections):
@@ -120,8 +125,8 @@ class MetaRCNNBase(nn.Module):
         # prn_target are support bboxes
 
         if get_pro:
-            # during phase 2, before eval, first get class_prototype: Dict{"label": tensor}
-            assert (self.training == False) and (self.phase ==2)
+            # during phase 1, 2, before eval, first get class_prototype: Dict{"label": tensor}
+            assert (self.training == False)
             prn_data = images[-1]
             prn_target = targets[-1]
             class_proto = OrderedDict()
@@ -134,8 +139,8 @@ class MetaRCNNBase(nn.Module):
             return class_proto
                 
         if class_prototype!=None:
-            # only true when in seconde phase eval or test, assert only test images are input
-            assert (self.training == False) and (self.phase == 2)
+            # only true when in eval or test, assert only test images are input
+            assert (self.training == False)
             ims = images
             tars=None
             images, targets = self.transform(ims, tars)  # 对query图像进行预处理
@@ -242,7 +247,7 @@ class FindPredictor(nn.Module):
     def __init__(self, in_channels, num_classes, phase):
         super(FindPredictor, self).__init__()
         self.cls_score = nn.Linear(in_channels, num_classes)
-        self.bbox_pred = nn.Linear(in_channels, 4)
+        self.bbox_pred = nn.Linear(in_channels, 4 * num_classes)
         self.cos_score = PairwiseCosine()
         self.phase = phase
         # self.reweight = nn.Linear(2*num_classes, num_classes)
@@ -263,17 +268,19 @@ class FindPredictor(nn.Module):
             data_score = None
         cos_sim = self.cos_score(c1,c2)
         cos_sim = cos_sim.squeeze(0)
+        # bg_sim = self.bg_proto(c1)
+        # bg_sim = F.softmax(bg_sim)
         cls_scores=[data_score, meta_score, cos_sim]
         # reg branch
-        p = r1.size()[0]
-        n = r2.size()[0]
-        assert r1.size()[1]==r2.size()[1]
-        d = r1.size()[1]
-        r1=r1.view(p,-1,d).expand(p,n,d)
-        r2=r2.view(-1,n,d).expand(p,n,d)
-        r = r1.add(r2)
-        bbox_deltas = self.bbox_pred(r)
-        bbox_deltas=bbox_deltas.view(p,-1)
+        # p = r1.size()[0]
+        # n = r2.size()[0]
+        # assert r1.size()[1]==r2.size()[1]
+        # d = r1.size()[1]
+        # r1=r1.view(p,-1,d).expand(p,n,d)
+        # r2=r2.view(-1,n,d).expand(p,n,d)
+        # r = r1.add(r2)
+        bbox_deltas = self.bbox_pred(r1)
+        # bbox_deltas=bbox_deltas.view(p,-1)
         return cls_scores, bbox_deltas
 
 

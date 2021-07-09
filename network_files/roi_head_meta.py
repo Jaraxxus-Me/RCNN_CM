@@ -52,30 +52,60 @@ def fastrcnn_loss(class_logits, box_regression, labels, meta_label, regression_t
         classification_loss_meta = Tensor([0]).to(labels_.device)
 
     # Calculate cosine similarity loss
+    meta_dict = {int(meta_label[i]):(i) for i in range(len(meta_label))}
+    # remap label_ to cos_label
     back_ind = torch.where(torch.eq(labels_, 0))[0]
     fore_ind = torch.where(torch.gt(labels_, 0))[0]
-    assert len(back_ind)*len(fore_ind)!=0
-    nega_cos = cos_lo_[back_ind]
-    pos_cos = cos_lo_[fore_ind]
-    # Calculate background loss, should all be 0
-    los_nega = torch.sum(nega_cos)/nega_cos.numel()
-    # Calculate foreground loss, should be:
-    # 1 - sim[i] or sim[i] 
-    pos_lab = labels_[fore_ind]
-    # ask Chen if propoer
-    def cal_pos_loss(pos_cos, pos_lab, meta_label):
-        meta_dict = {int(meta_label[i]):i for i in range(len(meta_label))}
-        fake_pos_loss=Tensor([0]).to(meta_label.device)
-        true_pos_loss=Tensor([0]).to(meta_label.device)
-        for i,c in enumerate(pos_lab):
-            true_pos_loss += (1-pos_cos[i,meta_dict[int(c)]])
-            fake_pos_loss += (torch.sum(pos_cos[i,:])-pos_cos[i,meta_dict[int(c)]])
-        return true_pos_loss+fake_pos_loss, meta_dict
+    pos_la = labels_[fore_ind]
+    cos_label = [meta_dict[int(c)] for c in pos_la]
+    cos_label = Tensor(cos_label).to(labels_.device).to(labels_.dtype)
+    # calculate cos matrix
+    def cal_cos_loss(cos_lo, pos_label, fore_ind, back_ind):
+        # true positive loss: -log(y_i|x)
+        pos_scores = cos_lo[fore_ind]
+        log_pos_score = torch.log(pos_scores)
+        true_pos_loss = F.nll_loss(log_pos_score, pos_label)
+        # false positive loss: -max(log((1-y_i)|x))
+        # skip
+        # true negative loss: - max(log(y)|x)
+        neg_scores = cos_lo[back_ind]
+        log_neg_score = -torch.log(neg_scores)
+        true_neg_loss = torch.max(log_neg_score)
+        return (true_pos_loss + true_neg_loss)
+    classification_loss_cos = cal_cos_loss(cos_lo_, cos_label, fore_ind, back_ind)
+    # calculate pos and neg loss respectively
+    # log_cos = torch.log(cos_matrix)
+    # nega_cos = log_cos[back_ind]
+    # pos_cos = log_cos[fore_ind]
+    # nega_label = cos_label[back_ind]
+    # pos_label = cos_label[fore_ind]
+    # if(torch.isnan(log_cos).sum()>0):
+	#     print("here!")
+    # classification_loss_cos = F.nll_loss(nega_cos, nega_label) + F.nll_loss(pos_cos, pos_label)
+    # # back_ind = torch.where(torch.eq(labels_, 0))[0]
+    # fore_ind = torch.where(torch.gt(labels_, 0))[0]
+    # assert len(back_ind)*len(fore_ind)!=0
+    # nega_cos = cos_lo_[back_ind]
+    # pos_cos = cos_lo_[fore_ind]
+    # # Calculate background loss, should all be 0
+    # los_nega = torch.sum(nega_cos)/nega_cos.numel()
+    # # Calculate foreground loss, should be:
+    # # 1 - sim[i] or sim[i] 
+    # pos_lab = labels_[fore_ind]
+    # # ask Chen if propoer
+    # def cal_pos_loss(pos_cos, pos_lab, meta_label):
+    #     meta_dict = {int(meta_label[i]):i for i in range(len(meta_label))}
+    #     fake_pos_loss=Tensor([0]).to(meta_label.device)
+    #     true_pos_loss=Tensor([0]).to(meta_label.device)
+    #     for i,c in enumerate(pos_lab):
+    #         true_pos_loss += (1-pos_cos[i,meta_dict[int(c)]])
+    #         fake_pos_loss += (torch.sum(pos_cos[i,:])-pos_cos[i,meta_dict[int(c)]])
+    #     return true_pos_loss+fake_pos_loss, meta_dict
 
-    los_pos, meta_dict = cal_pos_loss(pos_cos, pos_lab, meta_label)
-    los_pos = los_pos/pos_cos.numel()
+    # los_pos, meta_dict = cal_pos_loss(pos_cos, pos_lab, meta_label)
+    # los_pos = los_pos/pos_cos.numel()
 
-    classification_loss_cos = los_nega + los_pos
+    # classification_loss_cos = los_nega + los_pos
     # should be impossible
     if labels_.max()==0:
         box_loss=Tensor([0]).to(labels_.device)
@@ -93,7 +123,7 @@ def fastrcnn_loss(class_logits, box_regression, labels, meta_label, regression_t
 
     # 返回标签类别大于0位置的类别信息, remap
     labels_pos = labels_[sampled_pos_inds_subset]
-    labels_pos = [meta_dict[int(c)] for c in labels_pos]
+    # labels_pos = [meta_dict[int(c)] for c in labels_pos]
     # if len(labels_pos) == 0:
     #     box_loss=Tensor([0]).to(labels_.device)
     #     return classification_loss, box_loss
@@ -110,7 +140,7 @@ def fastrcnn_loss(class_logits, box_regression, labels, meta_label, regression_t
         size_average=False,
     ) / labels_.numel()
 
-    return classification_loss, 3*box_loss
+    return classification_loss, box_loss
 
 
 class RoIHeads(torch.nn.Module):
@@ -360,7 +390,9 @@ class RoIHeads(torch.nn.Module):
         # 遍历每张图像预测信息
         for boxes, scores, image_shape in zip(pred_boxes_list, pred_scores_list, image_shapes):
             # 裁剪预测的boxes信息，将越界的坐标调整到图片边界上
+            # 移除索引为0的所有信息（0代表背景）
             boxes = box_ops.clip_boxes_to_image(boxes, image_shape)
+            boxes = boxes[:, 1:]
 
             # create labels for each prediction
             # labels = torch.arange(num_classes, device=device)
@@ -370,8 +402,6 @@ class RoIHeads(torch.nn.Module):
             labels = labels.view(1,-1).expand_as(scores)
 
             # remove prediction with the background label
-            # 移除索引为0的所有信息（0代表背景）
-            # boxes = boxes[:, 1:]
             # scores = scores[:, 1:]
             # labels = labels[:, 1:]
 

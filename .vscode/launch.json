@@ -3,7 +3,7 @@
     // Hover to view descriptions of existing attributes.
     // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
     // on roberto
-    // python -m debugpy --listen 0.0.0.0:5678 --wait-for-client finetune_find.py --data_path /home/user/ws/FSDet/data --bs 2 --resume ./find_weights/resnet101-find-9.pth
+    // python -m debugpy --listen 0.0.0.0:5678 --wait-for-client train_find.py --data_path /home/user/ws/FSDet/data --bs 2
     "version": "0.2.0",
     "configurations": [
         {
@@ -17,7 +17,7 @@
             "pathMappings": [                          // Local<->remote file path correspondence, usually
                 {                                      // depends on how you mount files when 'docker run'
                     "localRoot": "${workspaceFolder}", // e.g. bender:$remoteRoot/module/source.py
-                    "remoteRoot": "/home/user/ws/RCNN_CM"     //   == perceptron:$localRoot/module/source.py
+                    "remoteRoot": "/home/user/ws/FIND/cos_loss"     //   == perceptron:$localRoot/module/source.py
                 }                                      // Will fail to set breakpoint if wrong
             ],
             "justMyCode": false                        // Optional, personally find helpful
