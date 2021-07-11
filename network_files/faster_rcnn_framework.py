@@ -29,46 +29,50 @@ class FasterRCNNBase(nn.Module):
     def __init__(self, backbone, rpn, roi_heads, transform):
         super(FasterRCNNBase, self).__init__()
         self.transform = transform
-        self.backbone = nn.Sequential(backbone.conv1, backbone.bn1, backbone.relu, backbone.maxpool,
-                                       backbone.layer1, backbone.layer2, backbone.layer3, backbone.layer4)
-        # Fix blocks
-        for p in self.backbone[0].parameters(): p.requires_grad = False
-        for p in self.backbone[1].parameters(): p.requires_grad = False
+        if backbone.name == "mob":
+            # backbone freeze of mobilenet is defined in train_find.py, dynamic
+            self.backbone = backbone
+        else:
+            self.backbone = nn.Sequential(backbone.conv1, backbone.bn1, backbone.relu, backbone.maxpool,
+                                        backbone.layer1, backbone.layer2, backbone.layer3, backbone.layer4)
+            # Fix blocks
+            for p in self.backbone[0].parameters(): p.requires_grad = False
+            for p in self.backbone[1].parameters(): p.requires_grad = False
 
-        assert (0 <= cfg.RESNET.FIXED_BLOCKS < 5)
-        if cfg.RESNET.FIXED_BLOCKS >= 4:
-            for p in self.backbone[-1].parameters(): p.requires_grad = False
-        if cfg.RESNET.FIXED_BLOCKS >= 3:
-            for p in self.backbone[6].parameters(): p.requires_grad = False
-        if cfg.RESNET.FIXED_BLOCKS >= 2:
-            for p in self.backbone[5].parameters(): p.requires_grad = False
-        if cfg.RESNET.FIXED_BLOCKS >= 1:
-            for p in self.backbone[4].parameters(): p.requires_grad = False
-        def set_bn_fix(m):
-            classname = m.__class__.__name__
-            if classname.find('BatchNorm') != -1:
-                for p in m.parameters(): p.requires_grad = False
-        self.backbone.apply(set_bn_fix)
+            assert (0 <= cfg.RESNET.FIXED_BLOCKS < 5)
+            if cfg.RESNET.FIXED_BLOCKS >= 4:
+                for p in self.backbone[-1].parameters(): p.requires_grad = False
+            if cfg.RESNET.FIXED_BLOCKS >= 3:
+                for p in self.backbone[6].parameters(): p.requires_grad = False
+            if cfg.RESNET.FIXED_BLOCKS >= 2:
+                for p in self.backbone[5].parameters(): p.requires_grad = False
+            if cfg.RESNET.FIXED_BLOCKS >= 1:
+                for p in self.backbone[4].parameters(): p.requires_grad = False
+            def set_bn_fix(m):
+                classname = m.__class__.__name__
+                if classname.find('BatchNorm') != -1:
+                    for p in m.parameters(): p.requires_grad = False
+            self.backbone.apply(set_bn_fix)
         # use the layers before avg_pool as backbone, a bit different from FSDet
         self.rpn = rpn
         self.roi_heads = roi_heads
         # used only on torchscript mode
         self._has_warned = False
 
-    def train(self, mode=True):
-        # Override train so that the training mode is set as we want
-        nn.Module.train(self, mode)
-        if mode:
-            # Set fixed blocks to be in eval mode
-            self.backbone.eval()
-            self.backbone[5].train()
-            self.backbone[6].train()
+    # def train(self, mode=True):
+    #     # Override train so that the training mode is set as we want
+    #     nn.Module.train(self, mode)
+    #     if mode:
+    #         # Set fixed blocks to be in eval mode
+    #         self.backbone.eval()
+    #         self.backbone[5].train()
+    #         self.backbone[6].train()
 
-            def set_bn_eval(m):
-                classname = m.__class__.__name__
-                if classname.find('BatchNorm') != -1:
-                    m.eval()
-            self.backbone.apply(set_bn_eval)
+    #         def set_bn_eval(m):
+    #             classname = m.__class__.__name__
+    #             if classname.find('BatchNorm') != -1:
+    #                 m.eval()
+    #         self.backbone.apply(set_bn_eval)
 
     @torch.jit.unused
     def eager_outputs(self, losses, detections):

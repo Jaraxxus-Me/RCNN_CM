@@ -63,14 +63,16 @@ def fastrcnn_loss(class_logits, box_regression, labels, meta_label, regression_t
     def cal_cos_loss(cos_lo, pos_label, fore_ind, back_ind):
         # true positive loss: -log(y_i|x)
         pos_scores = cos_lo[fore_ind]
+        pos_scores.clamp(min=0.001)
         log_pos_score = torch.log(pos_scores)
         true_pos_loss = F.nll_loss(log_pos_score, pos_label)
         # false positive loss: -max(log((1-y_i)|x))
         # skip
         # true negative loss: - max(log(y)|x)
         neg_scores = cos_lo[back_ind]
-        log_neg_score = -torch.log(neg_scores)
-        true_neg_loss = torch.max(log_neg_score)
+        neg_scores.clamp(min=0.001, max=0.99)
+        neg_max = torch.max(neg_scores)
+        true_neg_loss = -torch.log(1-neg_max)
         return (true_pos_loss + true_neg_loss)
     classification_loss_cos = cal_cos_loss(cos_lo_, cos_label, fore_ind, back_ind)
     # calculate pos and neg loss respectively
@@ -109,7 +111,7 @@ def fastrcnn_loss(class_logits, box_regression, labels, meta_label, regression_t
     # should be impossible
     if labels_.max()==0:
         box_loss=Tensor([0]).to(labels_.device)
-        classification_loss={"Li_data":box_loss,"Li_meta":classification_loss_meta,"Cos":box_loss}
+        classification_loss={"Li_data":box_loss,"Li_meta":classification_loss_meta,"Cos":classification_loss_cos}
         return classification_loss, box_loss
     else:
         classification_loss={"Li_data":classification_loss_data,"Li_meta":classification_loss_meta,"Cos":classification_loss_cos}

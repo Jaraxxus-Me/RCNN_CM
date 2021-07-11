@@ -274,12 +274,12 @@ def main(args):
             lr_scheduler.step()
 
             # evaluate on the test dataset
-            coco_info = utils.evaluate(model, val_data_set_loader, metaloader, 2, device=device)
+            coco_info, pro = utils.evaluate(model, val_data_set_loader, metaloader, 2, device=device)
 
             # write into txt
             with open(results_file, "a") as f:
                 # 写入的数据包括coco指标还有loss和learning rate
-                result_info, pro = [str(round(i, 4)) for i in coco_info + [mean_loss.item()]] + [str(round(lr, 6))]
+                result_info = [str(round(i, 4)) for i in coco_info + [mean_loss.item()]] + [str(round(lr, 6))]
                 txt = "epoch:{} {}".format(epoch, '  '.join(result_info))
                 f.write(txt + "\n")
 
@@ -354,7 +354,7 @@ if __name__ == "__main__":
     parser.add_argument('--bs_v', default=4, type=int, metavar='N',
                         help='batch size when training.')
     # metadata batch size
-    parser.add_argument('--metabs', default=6, type=int, metavar='N',
+    parser.add_argument('--metabs', default=8, type=int, metavar='N',
                         help='batch size when training.')
     # weight of cls loss during training
     parser.add_argument('--cls', default=0.25, type=float,
