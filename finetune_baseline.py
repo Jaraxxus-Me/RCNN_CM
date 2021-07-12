@@ -25,12 +25,11 @@ def create_model(num_classes):
     # backbone = MobileNetV2(weights_path="./backbone/mobilenet_v2.pth").features
     # backbone.out_channels = 1280  # 设置对应backbone输出特征矩阵的channels
 
-    # use resnet101 as baseline backbone
-    backbone = resnet101()
-    print("Loading pretrained weights from %s" % ("./backbone/resnet101.pth"))
-    state_dict = torch.load("./backbone/resnet101.pth")
-    backbone.load_state_dict({k: v for k, v in state_dict.items() if k in backbone.state_dict()})
-    backbone.out_channels = 2048
+    #     # MobileNet backbone
+    backbone = MobileNetV2(weights_path="./backbone/mobilenet_v2.pth").features
+    backbone.name = "mob"
+    backbone.out_channels = 1280  # 设置对应backbone输出特征矩阵的channels
+
     anchor_generator = AnchorsGenerator(sizes=((32, 64, 128, 256, 512),),
                                         aspect_ratios=((0.5, 1.0, 2.0),))
 
@@ -42,6 +41,24 @@ def create_model(num_classes):
                        num_classes=num_classes,
                        rpn_anchor_generator=anchor_generator,
                        box_roi_pool=roi_pooler)
+    # ResNet backbone
+    # backbone = resnet101()
+    # backbone.name = "res"
+    # print("Loading pretrained weights from %s" % ("./backbone/resnet101.pth"))
+    # state_dict = torch.load("./backbone/resnet101.pth")
+    # backbone.load_state_dict({k: v for k, v in state_dict.items() if k in backbone.state_dict()})
+    # backbone.out_channels = 2048
+    # anchor_generator = AnchorsGenerator(sizes=((32, 64, 128, 256, 512),),
+    #                                     aspect_ratios=((0.5, 1.0, 2.0),))
+
+    # roi_pooler = torchvision.ops.MultiScaleRoIAlign(featmap_names=['0'],  # 在哪些特征层上进行roi pooling
+    #                                                 output_size=[7, 7],   # roi_pooling输出特征矩阵尺寸
+    #                                                 sampling_ratio=2)  # 采样率
+
+    # model = FasterRCNN(backbone=backbone,
+    #                    num_classes=num_classes,
+    #                    rpn_anchor_generator=anchor_generator,
+    #                    box_roi_pool=roi_pooler)
 
     return model
 
