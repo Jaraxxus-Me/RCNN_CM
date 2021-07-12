@@ -31,14 +31,22 @@ __C.TRAIN.BASECLASSES_FIRST = ['aeroplane', 'bicycle', 'boat', 'bottle', 'car',
 __C.TRAIN.ALLCLASSES_FIRST = ['person', 'motorcycle', 'bus', 'truck', 'boat',
                               'traffic light']
 
-__C.TRAIN.ALLCLASSES_SECOND = ['stop sign', 'bench', 'bird', 'elephant', 'handbag',
+__C.TRAIN.ALLCLASSES_SECOND = ['stop sign', 'bench', 'bird', 'handbag',
                                'suitcase', 'snowboard', 'kite', 'baseball glove', 'chair']
 
 __C.TRAIN.ALLCLASSES_THIRD = ['dining table', 'toilet', 'laptop', 'keyboard', 'cell phone',
-                              'oven', 'refrigerator', 'book']
+                              'oven', 'book']
 
 __C.TRAIN.ALLCLASSES_FORTH = ['clock', 'vase', 'hair drier', 'refrigerator', 'bed',
                               'sandwich', 'bird', 'bench']
+
+__C.TRAIN.ALLCLASSES_FIFTH = ['laptop', 'snowboard', 'bench', 'keyboard', 'bed',
+                              'sandwich', 'bird', 'stop sign', 'book']
+
+__C.TRAIN.ALLCLASSES_SIXTH = ['clock', 'bus', 'boat', 'refrigerator', 'cell phone',
+                              'suitcase', 'bird', 'motorcycle']                              
+
+                
 
 ####
 # Momentum

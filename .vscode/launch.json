@@ -2,14 +2,26 @@
     // Use IntelliSense to learn about possible attributes.
     // Hover to view descriptions of existing attributes.
     // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    // on roberto
+    // python -m debugpy --listen 0.0.0.0:5678 --wait-for-client finetune_baseline.py --data_path /home/user/ws/dataset/coco --bs 8 --resume ./baseline_weights/mobile-base-24.pth
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Python: 当前文件",
+            "name": "Python: Remote Attach",
             "type": "python",
-            "request": "launch",
-            "program": "finetune_baseline.py",
-            "console": "integratedTerminal"
+            "request": "attach",                       // Tells debugger to attach to a running instance
+            "connect": {
+                "host": "clamps",                     // The machine you are debugging on
+                "port": 5678                           // Which port is used as the debugging port
+            },
+            "pathMappings": [                          // Local<->remote file path correspondence, usually
+                {                                      // depends on how you mount files when 'docker run'
+                    "localRoot": "${workspaceFolder}", // e.g. bender:$remoteRoot/module/source.py
+                    "remoteRoot": "/home/user/ws/FIND/baseline"     //   == perceptron:$localRoot/module/source.py
+                }                                      // Will fail to set breakpoint if wrong
+            ],
+            "justMyCode": false                        // Optional, personally find helpful
         }
+
     ]
 }

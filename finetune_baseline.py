@@ -179,13 +179,13 @@ def main(args):
 
         # save weights
         # 仅保存最后2个epoch的权重
-        if epoch in range(args.epochs)[-2:]:
+        if epoch in range(args.epochs)[-5:]:
             save_files = {
                 'model': model.state_dict(),
                 'optimizer': optimizer.state_dict(),
                 'lr_scheduler': lr_scheduler.state_dict(),
                 'epoch': epoch}
-            torch.save(save_files, "./fine_baseline_weight/resnet101-model-{}-{}cls-{}shots.pth".format(epoch,len(metaclass),args.shots))
+            torch.save(save_files, "./fine_baseline_weight/mob-model-{}-type{}-{}shots.pth".format(epoch, args.meta_type, args.shots))
 
     # plot loss and lr curve
     if len(train_loss) != 0 and len(learning_rate) != 0:
@@ -215,19 +215,19 @@ if __name__ == "__main__":
     # 指定接着从哪个epoch数开始训练
     parser.add_argument('--start_epoch', default=0, type=int, help='start epoch')
     # 训练的总epoch数
-    parser.add_argument('--epochs', default=10, type=int, metavar='N',
+    parser.add_argument('--epochs', default=30, type=int, metavar='N',
                         help='number of total epochs to run')
     # split (1/2/3)
     parser.add_argument('--meta_type', default=1, type=int,
                         help='which split of VOC to implement, 1, 2, or 3')
     # shots
-    parser.add_argument('--shots', default=1, type=int,
+    parser.add_argument('--shots', default=10, type=int,
                         help='how many shots in few-shot learning')
     # 训练的batch size
-    parser.add_argument('--bs', default=2, type=int, metavar='N',
+    parser.add_argument('--bs', default=8, type=int, metavar='N',
                         help='batch size when training.')
     # validation batch size
-    parser.add_argument('--bs_v', default=2, type=int, metavar='N',
+    parser.add_argument('--bs_v', default=8, type=int, metavar='N',
                         help='batch size when training.')
     args = parser.parse_args()
     print(args)

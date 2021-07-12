@@ -109,6 +109,7 @@ class MetaDataset(data.Dataset):
             classes[cls] = 0
         n=0
         for img_id in self.ids:
+            proper=False
             xml_path = self._annopath % img_id
             with open(xml_path) as fid:
                 xml_str = fid.read()
@@ -119,7 +120,8 @@ class MetaDataset(data.Dataset):
             if image.format != "JPEG":
                 raise ValueError("Image '{}' format not JPEG".format(self._imgpath % img_id))
             image = F.to_tensor(image)
-            assert "object" in data, "{} lack of object information.".format(xml_path)
+            if "object" not in data:
+                continue
             for obj in data["object"]:
                 if obj["difficult"]=='1':
                     continue
@@ -138,6 +140,7 @@ class MetaDataset(data.Dataset):
                 if xmax <= xmin or ymax <= ymin:
                     print("Warning: in '{}' xml, there are some bbox w/h <=0".format(xml_path))
                     continue
+                proper=True
                 classes[name] += 1
                 # convert everything into a torch.Tensor
                 boxes = torch.as_tensor([xmin, ymin, xmax, ymax], dtype=torch.float32)
@@ -145,13 +148,14 @@ class MetaDataset(data.Dataset):
                 target = {}
                 target["boxes"] = boxes
                 target["labels"] = labels
-                self.shot_path.write(str(img_id[-1])+'\n')
                 n+=1
                 # if self.transforms is not None:
                 #     image, target = self.transforms(image, target)
                 prn_image[name].append(image)
                 prn_target[name].append(target)
-                print("loaded meta data: {:d}/{:d}".format(n,len(classes.keys())*self.shots))
+                print("loaded meta data instance: {:d}/{:d}".format(n,len(classes.keys())*self.shots))
+            if proper:
+                self.shot_path.write(str(img_id[-1])+'\n')
             if len(classes) > 0 and min(classes.values()) == self.shots:
                 break
         self.shot_path.close()
@@ -217,7 +221,8 @@ class FtDataSet(data.Dataset):
             boxes = []
             labels = []
             iscrowd = []
-            assert "object" in data, "{} lack of object information.".format(xml_path)
+            if "object" not in data:
+                continue
             for obj in data["object"]:
                 if obj['name'] not in self.allclass:
                     continue
