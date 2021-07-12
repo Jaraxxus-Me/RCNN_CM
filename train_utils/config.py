@@ -24,44 +24,22 @@ __C.TRAIN.LEARNING_RATE = 0.001
 __C.TRAIN.META_TYPE = 1
 
 ##### set classes ###
-__C.CUSTOM_NOVEL_CLASSES = ['Cls_1', 'Cls_2', 'Cls_3']
-
-
-__C.VOC_CLASSES = ['airplane', 'bicycle', 'bird', 'boat', 'bottle', 'bus',
-                   'car', 'cat', 'chair', 'cow', 'dining table', 'dog', 'horse',
-                   'motorcycle', 'person', 'potted plant', 'sheep', 'couch', 'train', 'tv']
-
-__C.TRAIN.ALLCLASSES_FIRST = ['aeroplane', 'bicycle', 'boat', 'bottle', 'car',
-                              'cat', 'chair', 'diningtable', 'dog', 'horse',
-                              'person', 'pottedplant', 'sheep', 'train', 'tvmonitor',
-                              'bird', 'bus', 'cow', 'motorbike', 'sofa']
-
 __C.TRAIN.BASECLASSES_FIRST = ['aeroplane', 'bicycle', 'boat', 'bottle', 'car',
                                'cat', 'chair', 'diningtable', 'dog', 'horse',
                                'person', 'pottedplant', 'sheep', 'train', 'tvmonitor']
 
-__C.TRAIN.ALLCLASSES_SECOND = ['bicycle', 'bird', 'boat', 'bus', 'car',
-                               'cat', 'chair', 'diningtable', 'dog', 'motorbike',
-                               'person', 'pottedplant', 'sheep', 'train', 'tvmonitor',
-                               'aeroplane', 'bottle', 'cow', 'horse', 'sofa']
+__C.TRAIN.ALLCLASSES_FIRST = ['person', 'motorcycle', 'bus', 'truck', 'boat',
+                              'traffic light']
 
-__C.TRAIN.BASECLASSES_SECOND = ['bicycle', 'bird', 'boat', 'bus', 'car',
-                                'cat', 'chair', 'diningtable', 'dog', 'motorbike',
-                                'person', 'pottedplant', 'sheep', 'train', 'tvmonitor']
+__C.TRAIN.ALLCLASSES_SECOND = ['stop sign', 'bench', 'bird', 'elephant', 'handbag',
+                               'suitcase', 'snowboard', 'kite', 'baseball glove', 'chair']
 
-__C.TRAIN.ALLCLASSES_THIRD = ['aeroplane', 'bicycle', 'bird', 'bottle', 'bus',
-                              'car', 'chair', 'cow', 'diningtable', 'dog',
-                              'horse', 'person', 'pottedplant', 'train', 'tvmonitor',
-                              'boat', 'cat', 'motorbike', 'sheep', 'sofa']
+__C.TRAIN.ALLCLASSES_THIRD = ['dining table', 'toilet', 'laptop', 'keyboard', 'cell phone',
+                              'oven', 'refrigerator', 'book']
 
-__C.TRAIN.BASECLASSES_THIRD = ['aeroplane', 'bicycle', 'bird', 'bottle', 'bus',
-                               'car', 'chair', 'cow', 'diningtable', 'dog',
-                               'horse', 'person', 'pottedplant', 'train', 'tvmonitor']
+__C.TRAIN.ALLCLASSES_FORTH = ['clock', 'vase', 'hair drier', 'refrigerator', 'bed',
+                              'sandwich', 'bird', 'bench']
 
-__C.NOVEL_3D_CLASSES = ['bed', 'bookshelf', 'calculator', 'cellphone', 'computer',
-                        'door', 'filing_cabinet', 'guitar', 'iron', 'knife',
-                        'microwave', 'pen', 'pot', 'rifle', 'shoe',
-                        'slipper', 'stove', 'toilet', 'tub', 'wheelchair']
 ####
 # Momentum
 __C.TRAIN.MOMENTUM = 0.9

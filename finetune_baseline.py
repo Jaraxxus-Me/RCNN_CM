@@ -7,8 +7,7 @@ import torchvision
 import transforms
 from network_files import FasterRCNN, AnchorsGenerator
 from backbone import MobileNetV2, vgg, resnet101
-from finetune_data import MetaDataset, FtDataSet
-from my_dataset import VOCDataSet
+from finetune_data import MetaDataset, FtDataSet, COCODataSet
 from train_utils.config import cfg
 from train_utils import train_eval_utils as utils
 from collections import OrderedDict
@@ -80,7 +79,7 @@ def main(args):
     }
 
     #dataset config
-    VOC_root = args.data_path  # VOCdevkit
+    coco_root = args.data_path  # VOCdevkit
     shots = args.shots
     if args.meta_type == 1:  #  use the first sets of all classes
         metaclass = cfg.TRAIN.ALLCLASSES_FIRST
@@ -88,15 +87,18 @@ def main(args):
         metaclass = cfg.TRAIN.ALLCLASSES_SECOND
     if args.meta_type == 3:  #  use the third sets of all classes
         metaclass = cfg.TRAIN.ALLCLASSES_THIRD
-    img_set = [('2007', 'trainval')]
-    # check voc root
-    if os.path.exists(os.path.join(VOC_root, "VOCdevkit")) is False:
-        raise FileNotFoundError("VOCdevkit dose not in path:'{}'.".format(VOC_root))
+    if args.meta_type == 4:  #  use the first sets of all classes
+        metaclass = cfg.TRAIN.ALLCLASSES_FORTH
+    if args.meta_type == 5:  #  use the second sets of all classes
+        metaclass = cfg.TRAIN.ALLCLASSES_FIFTH
+    if args.meta_type == 6:  #  use the third sets of all classes
+        metaclass = cfg.TRAIN.ALLCLASSES_SIXTH
+    img_set = "train"
 
     # load train data set
     # for baseline metadata is used to generate shots.txt
-    metadata = MetaDataset(VOC_root, img_set, metaclass, shots)
-    train_data_set = FtDataSet(VOC_root, metaclass, shots)
+    metadata = MetaDataset(coco_root, img_set, metaclass, shots)
+    train_data_set = FtDataSet(coco_root, metaclass, shots)
     # 注意这里的collate_fn是自定义的，因为读取的数据包括image和targets，不能直接使用默认的方法合成batch
     batch_size = args.bs
     nw = min([os.cpu_count(), batch_size if batch_size > 1 else 0, 8])  # number of workers
@@ -109,7 +111,7 @@ def main(args):
 
     # load validation data set the same, 2012+2007 val.txt
     batch_size = args.bs_v
-    val_data_set = VOCDataSet(VOC_root, metaclass, data_transform["val"], "val.txt")
+    val_data_set = COCODataSet(coco_root, metaclass, data_transform["val"], "val.txt")
     val_data_set_loader = torch.utils.data.DataLoader(val_data_set,
                                                       batch_size=batch_size,
                                                       shuffle=False,
@@ -127,7 +129,7 @@ def main(args):
     for name in checkpoint['model']:
         if ("roi_heads.box_predictor.cls_score" in name) or ("roi_heads.box_predictor.bbox_pred" in name):
             init_weight=new_state_dict[name]
-            init_weight[:checkpoint['model'][name].size()[0]] = checkpoint['model'][name]
+            # init_weight[:checkpoint['model'][name].size()[0]] = checkpoint['model'][name]
             checkpoint['model'][name] = init_weight
     # load params to model
     new_state_dict.update(checkpoint['model'])
@@ -160,8 +162,8 @@ def main(args):
         train_loss.append(mean_loss.item())
         learning_rate.append(lr)
 
-        # update the learning rate
-        lr_scheduler.step()
+        # # update the learning rate
+        # lr_scheduler.step()
         if epoch in range(args.epochs)[-2:]:
         # evaluate on the test dataset of last 2 epochs
             coco_info = utils.evaluate(model, val_data_set_loader, device=device)
@@ -205,11 +207,11 @@ if __name__ == "__main__":
     # 训练设备类型
     parser.add_argument('--device', default='cuda:0', help='device')
     # 训练数据集的根目录(VOCdevkit)
-    parser.add_argument('--data_path', default='./', help='dataset')
+    parser.add_argument('--data_path', default='/home/li/CMU_RISS/coco', help='dataset')
     # 文件保存地址
     parser.add_argument('--output_dir', default='./fine_baseline_weight', help='path where to save')
     # 若需要接着上次训练，则指定上次训练保存权重文件地址
-    parser.add_argument('--resume', default='', type=str, help='resume from checkpoint')
+    parser.add_argument('--resume', default='/home/li/CMU_RISS/FIND/RCNN_CM/save_weights/mobile-base-24.pth', type=str, help='resume from checkpoint')
     # 指定接着从哪个epoch数开始训练
     parser.add_argument('--start_epoch', default=0, type=int, help='start epoch')
     # 训练的总epoch数
@@ -219,13 +221,13 @@ if __name__ == "__main__":
     parser.add_argument('--meta_type', default=1, type=int,
                         help='which split of VOC to implement, 1, 2, or 3')
     # shots
-    parser.add_argument('--shots', default=10, type=int,
+    parser.add_argument('--shots', default=1, type=int,
                         help='how many shots in few-shot learning')
     # 训练的batch size
-    parser.add_argument('--bs', default=1, type=int, metavar='N',
+    parser.add_argument('--bs', default=2, type=int, metavar='N',
                         help='batch size when training.')
     # validation batch size
-    parser.add_argument('--bs_v', default=4, type=int, metavar='N',
+    parser.add_argument('--bs_v', default=2, type=int, metavar='N',
                         help='batch size when training.')
     args = parser.parse_args()
     print(args)

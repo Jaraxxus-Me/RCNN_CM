@@ -1,22 +1,8 @@
 {
-    "aeroplane": 1,
-    "bicycle": 2,
-    "boat": 3,
-    "bottle": 4,
-    "car": 5,
-    "cat": 6,
-    "chair": 7,
-    "diningtable": 8,
-    "dog": 9,
-    "horse": 10,
-    "person": 11,
-    "pottedplant": 12,
-    "sheep": 13,
-    "train": 14,
-    "tvmonitor": 15,
-    "bird": 16,
-    "bus": 17,
-    "cow": 18,
-    "motorbike": 19,
-    "sofa": 20
+    "person": 1,
+    "motorcycle": 2,
+    "bus": 3,
+    "truck": 4,
+    "boat": 5,
+    "traffic light": 6
 }
