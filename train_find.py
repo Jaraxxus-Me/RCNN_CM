@@ -166,7 +166,7 @@ def main(args):
                                 'weight_decay': cfg.TRAIN.BIAS_DECAY and cfg.TRAIN.WEIGHT_DECAY or 0}]
                 else:
                     params += [{'params': [value], 'lr': lr, 'weight_decay': cfg.TRAIN.WEIGHT_DECAY}]
-        params = [p for p in model.parameters() if p.requires_grad]
+        # params = [p for p in model.parameters() if p.requires_grad]
         optimizer = torch.optim.SGD(params, lr, momentum=cfg.TRAIN.MOMENTUM)
         # learning rate scheduler
         lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer,
@@ -214,8 +214,15 @@ def main(args):
             param.requires_grad = False
 
         # define optimizer
-        params = [p for p in model.parameters() if p.requires_grad]
-        optimizer = torch.optim.SGD(params, lr=0.005,
+        params = []
+        for key, value in dict(model.named_parameters()).items():
+            if value.requires_grad:
+                if 'bg' in key:
+                    params += [{'params': [value], 'lr': 0.01}]
+                else:
+                    params += [{'params': [value]}]
+        # params = [p for p in model.parameters() if p.requires_grad]
+        optimizer = torch.optim.SGD(params, lr=0.01,
                                     momentum=0.9, weight_decay=0.0005)
 
         init_epochs = 5
@@ -239,7 +246,7 @@ def main(args):
 
             val_map.append(coco_info[1])  # pascal mAP
 
-        torch.save(model.state_dict(), "./save_weights/pretrain.pth")
+        torch.save(model.state_dict(), "{}/pretrain.pth".format(args.output_dir))
 
         # # # # # # # # # # # # # # # # # # # # # # # # # # # #
         #  second unfrozen backbone and train all network     #
@@ -255,8 +262,15 @@ def main(args):
                 parameter.requires_grad = True
 
         # define optimizer
-        params = [p for p in model.parameters() if p.requires_grad]
-        optimizer = torch.optim.SGD(params, lr=0.005,
+        params = []
+        for key, value in dict(model.named_parameters()).items():
+            if value.requires_grad:
+                if 'bg' in key:
+                    params += [{'params': [value], 'lr': 0.01}]
+                else:
+                    params += [{'params': [value]}]
+        # params = [p for p in model.parameters() if p.requires_grad]
+        optimizer = torch.optim.SGD(params, lr=0.01,
                                     momentum=0.9, weight_decay=0.0005)
         # learning rate scheduler
         lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer,
@@ -351,13 +365,13 @@ if __name__ == "__main__":
     parser.add_argument('--bs', default=4, type=int, metavar='N',
                         help='batch size when training.')
     # validation batch size
-    parser.add_argument('--bs_v', default=4, type=int, metavar='N',
+    parser.add_argument('--bs_v', default=8, type=int, metavar='N',
                         help='batch size when training.')
     # metadata batch size
     parser.add_argument('--metabs', default=8, type=int, metavar='N',
                         help='batch size when training.')
     # weight of cls loss during training
-    parser.add_argument('--cls', default=0.25, type=float,
+    parser.add_argument('--cls', default=0.3, type=float,
                         help='weight of cls loss during training')
 
 

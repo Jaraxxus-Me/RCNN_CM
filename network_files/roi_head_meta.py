@@ -8,7 +8,7 @@ from . import det_utils
 from . import boxes as box_ops
 
 
-def fastrcnn_loss(class_logits, box_regression, labels, meta_label, regression_targets,phase):
+def fastrcnn_loss(class_logits, box_regression, labels, meta_label, regression_targets, phase):
     # type: (List[Tensor], Tensor, List[Tensor], List[Tensor], List[Tensor], int) -> Tuple[Tensor, Tensor]
     """
     Computes the loss for Faster R-CNN.
@@ -52,29 +52,24 @@ def fastrcnn_loss(class_logits, box_regression, labels, meta_label, regression_t
         classification_loss_meta = Tensor([0]).to(labels_.device)
 
     # Calculate cosine similarity loss
-    meta_dict = {int(meta_label[i]):(i) for i in range(len(meta_label))}
+    meta_dict = {int(meta_label[i]):(i+1) for i in range(len(meta_label))}
+    meta_dict[0]=0
     # remap label_ to cos_label
-    back_ind = torch.where(torch.eq(labels_, 0))[0]
-    fore_ind = torch.where(torch.gt(labels_, 0))[0]
-    pos_la = labels_[fore_ind]
-    cos_label = [meta_dict[int(c)] for c in pos_la]
+    cos_label = [meta_dict[int(c)] for c in labels_]
     cos_label = Tensor(cos_label).to(labels_.device).to(labels_.dtype)
     # calculate cos matrix
-    def cal_cos_loss(cos_lo, pos_label, fore_ind, back_ind):
+    def cal_cos_loss(cos_lo, cos_label):
         # true positive loss: -log(y_i|x)
-        pos_scores = cos_lo[fore_ind]
-        pos_scores.clamp(min=0.001)
-        log_pos_score = torch.log(pos_scores)
-        true_pos_loss = F.nll_loss(log_pos_score, pos_label)
+        normaled_cos = F.normalize(cos_lo, p=1, dim=1)
+        normaled_cos.clamp(min=0.01,max=0.99)
+        log_pos_score = torch.log(normaled_cos)
+        cos_loss = F.nll_loss(log_pos_score, cos_label)
+        # if postive loss ==nan
         # false positive loss: -max(log((1-y_i)|x))
         # skip
         # true negative loss: - max(log(y)|x)
-        neg_scores = cos_lo[back_ind]
-        neg_scores.clamp(min=0.001, max=0.99)
-        neg_max = torch.max(neg_scores)
-        true_neg_loss = -torch.log(1-neg_max)
-        return (true_pos_loss + true_neg_loss)
-    classification_loss_cos = cal_cos_loss(cos_lo_, cos_label, fore_ind, back_ind)
+        return cos_loss
+    classification_loss_cos = cal_cos_loss(cos_lo_, cos_label)
     # calculate pos and neg loss respectively
     # log_cos = torch.log(cos_matrix)
     # nega_cos = log_cos[back_ind]
@@ -111,7 +106,7 @@ def fastrcnn_loss(class_logits, box_regression, labels, meta_label, regression_t
     # should be impossible
     if labels_.max()==0:
         box_loss=Tensor([0]).to(labels_.device)
-        classification_loss={"Li_data":box_loss,"Li_meta":classification_loss_meta,"Cos":classification_loss_cos}
+        classification_loss={"Li_data":classification_loss_data,"Li_meta":classification_loss_meta,"Cos":classification_loss_cos}
         return classification_loss, box_loss
     else:
         classification_loss={"Li_data":classification_loss_data,"Li_meta":classification_loss_meta,"Cos":classification_loss_cos}
@@ -380,7 +375,7 @@ class RoIHeads(torch.nn.Module):
         pred_boxes = self.box_coder.decode(box_regression, proposals)
 
         # use cos_simi as cls
-        pred_scores = cos_simi
+        pred_scores = F.normalize(cos_simi, p=1, dim=1)
         # split boxes and scores per image
         # 根据每张图像的预测bbox数量分割结果
         pred_boxes_list = pred_boxes.split(boxes_per_image, 0)
@@ -394,18 +389,20 @@ class RoIHeads(torch.nn.Module):
             # 裁剪预测的boxes信息，将越界的坐标调整到图片边界上
             # 移除索引为0的所有信息（0代表背景）
             boxes = box_ops.clip_boxes_to_image(boxes, image_shape)
-            boxes = boxes[:, 1:]
 
             # create labels for each prediction
             # labels = torch.arange(num_classes, device=device)
             # labels = labels.view(1, -1).expand_as(scores)
-
-            labels = Tensor([c for c in meta_lable]).to(boxes.device).to(meta_lable[0].dtype)
+            label_list = [0]
+            for c in meta_lable:
+                label_list.append(c)
+            labels = Tensor(label_list).to(boxes.device).to(meta_lable[0].dtype)
             labels = labels.view(1,-1).expand_as(scores)
 
             # remove prediction with the background label
-            # scores = scores[:, 1:]
-            # labels = labels[:, 1:]
+            scores = scores[:, 1:]
+            labels = labels[:, 1:]
+            boxes = boxes[:, 1:]
 
             # batch everything, by making every class prediction be a separate instance
             boxes = boxes.reshape(-1, 4)

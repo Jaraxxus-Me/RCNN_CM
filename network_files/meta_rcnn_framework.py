@@ -249,6 +249,9 @@ class FindPredictor(nn.Module):
         self.cls_score = nn.Linear(in_channels, num_classes)
         self.bbox_pred = nn.Linear(in_channels, 4 * num_classes)
         self.cos_score = PairwiseCosine()
+        bg_tensor = torch.rand(1, in_channels)
+        torch.nn.init.normal_(bg_tensor, mean=0, std=1)
+        self.bg = nn.Parameter(bg_tensor)
         self.phase = phase
         # self.reweight = nn.Linear(2*num_classes, num_classes)
 
@@ -260,6 +263,7 @@ class FindPredictor(nn.Module):
         # cls branch
         c1 = c1.flatten(start_dim=1)
         c2 = c2.flatten(start_dim=1)
+
         if self.phase==1:
             meta_score = self.cls_score(c2)
             data_score = self.cls_score(c1)
@@ -267,10 +271,21 @@ class FindPredictor(nn.Module):
             meta_score = None
             data_score = None
         cos_sim = self.cos_score(c1,c2)
-        cos_sim = cos_sim.squeeze(0)
+        bg_sim = self.cos_score(c1,torch.abs(self.bg))
+        if(torch.isnan(bg_sim).sum()>0):
+	        print("here!")
+        cos_sim = cos_sim.squeeze(0).clamp(min=0.01,max=0.999)
+        bg_sim = bg_sim.squeeze(0).clamp(min=0.01,max=0.999)
+        # print("similarity score:")
+        # print(max(bg_sim))
+        # print(min(bg_sim))
+        # print("bg vector:")
+        # print(self.bg)
+        # print(self.bg)
+        simi_matrix = torch.cat((bg_sim, cos_sim), dim=1)
         # bg_sim = self.bg_proto(c1)
         # bg_sim = F.softmax(bg_sim)
-        cls_scores=[data_score, meta_score, cos_sim]
+        cls_scores=[data_score, meta_score, simi_matrix]
         # reg branch
         # p = r1.size()[0]
         # n = r2.size()[0]
