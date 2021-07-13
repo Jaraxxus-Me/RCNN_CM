@@ -38,4 +38,9 @@ venv.bak/
 *.pth
 *.txt
 *.png
+*.pkl
+baseline_weights/
+find_weights/
+fine_baseli_weight/
+fine_find_weight/
 run/
