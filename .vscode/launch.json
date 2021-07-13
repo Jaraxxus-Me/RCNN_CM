@@ -3,7 +3,7 @@
     // Hover to view descriptions of existing attributes.
     // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
     // on roberto
-    // python -m debugpy --listen 0.0.0.0:5678 --wait-for-client finetune_baseline.py --data_path /home/user/ws/dataset/coco --bs 8 --resume ./baseline_weights/mobile-base-24.pth
+    // python -m debugpy --listen 0.0.0.0:5678 --wait-for-client test_find.py --data_path /home/user/ws/dataset/coco
     "version": "0.2.0",
     "configurations": [
         {

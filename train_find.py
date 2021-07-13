@@ -222,7 +222,7 @@ def main(args):
                 else:
                     params += [{'params': [value]}]
         # params = [p for p in model.parameters() if p.requires_grad]
-        optimizer = torch.optim.SGD(params, lr=0.01,
+        optimizer = torch.optim.SGD(params, lr=0.005,
                                     momentum=0.9, weight_decay=0.0005)
 
         init_epochs = 5
@@ -270,7 +270,7 @@ def main(args):
                 else:
                     params += [{'params': [value]}]
         # params = [p for p in model.parameters() if p.requires_grad]
-        optimizer = torch.optim.SGD(params, lr=0.01,
+        optimizer = torch.optim.SGD(params, lr=0.005,
                                     momentum=0.9, weight_decay=0.0005)
         # learning rate scheduler
         lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer,

@@ -11,11 +11,10 @@ from tqdm import tqdm
 import numpy as np
 import torchvision
 from train_utils.config import cfg
-
 import transforms
 from network_files import FasterRCNN, AnchorsGenerator
-from backbone import resnet50_fpn_backbone, resnet101
-from my_dataset import VOC2007DataSet
+from backbone import MobileNetV2, vgg, resnet101
+from finetune_data import MetaDataset, FtDataSet, COCODataSet
 from train_utils import get_coco_api_from_dataset, CocoEvaluator
 
 def create_model(num_classes):
@@ -29,12 +28,11 @@ def create_model(num_classes):
     # backbone = MobileNetV2(weights_path="./backbone/mobilenet_v2.pth").features
     # backbone.out_channels = 1280  # 设置对应backbone输出特征矩阵的channels
 
-    # use resnet101 as baseline backbone
-    backbone = resnet101()
-    print("Loading pretrained weights from %s" % ("./backbone/resnet101.pth"))
-    state_dict = torch.load("./backbone/resnet101.pth")
-    backbone.load_state_dict({k: v for k, v in state_dict.items() if k in backbone.state_dict()})
-    backbone.out_channels = 2048
+    #     # MobileNet backbone
+    backbone = MobileNetV2(weights_path="./backbone/mobilenet_v2.pth").features
+    backbone.name = "mob"
+    backbone.out_channels = 1280  # 设置对应backbone输出特征矩阵的channels
+
     anchor_generator = AnchorsGenerator(sizes=((32, 64, 128, 256, 512),),
                                         aspect_ratios=((0.5, 1.0, 2.0),))
 
@@ -46,6 +44,24 @@ def create_model(num_classes):
                        num_classes=num_classes,
                        rpn_anchor_generator=anchor_generator,
                        box_roi_pool=roi_pooler)
+    # ResNet backbone
+    # backbone = resnet101()
+    # backbone.name = "res"
+    # print("Loading pretrained weights from %s" % ("./backbone/resnet101.pth"))
+    # state_dict = torch.load("./backbone/resnet101.pth")
+    # backbone.load_state_dict({k: v for k, v in state_dict.items() if k in backbone.state_dict()})
+    # backbone.out_channels = 2048
+    # anchor_generator = AnchorsGenerator(sizes=((32, 64, 128, 256, 512),),
+    #                                     aspect_ratios=((0.5, 1.0, 2.0),))
+
+    # roi_pooler = torchvision.ops.MultiScaleRoIAlign(featmap_names=['0'],  # 在哪些特征层上进行roi pooling
+    #                                                 output_size=[7, 7],   # roi_pooling输出特征矩阵尺寸
+    #                                                 sampling_ratio=2)  # 采样率
+
+    # model = FasterRCNN(backbone=backbone,
+    #                    num_classes=num_classes,
+    #                    rpn_anchor_generator=anchor_generator,
+    #                    box_roi_pool=roi_pooler)
 
     return model
 
@@ -123,57 +139,46 @@ def summarize(self, catId=None):
 
 def main(parser_data):
     device = torch.device(parser_data.device if torch.cuda.is_available() else "cpu")
-    print("Using {} device training.".format(device.type))
+    print("Using {} device testing.".format(device.type))
 
     data_transform = {
         "val": transforms.Compose([transforms.ToTensor()])
     }
 
-    if parser_data.meta_type == 1:  #  use the first sets of all classes
+    #dataset config
+    coco_root = args.data_path  # VOCdevkit
+    if args.meta_type == 1:  #  use the first sets of all classes
         metaclass = cfg.TRAIN.ALLCLASSES_FIRST
-    if parser_data.meta_type == 2:  #  use the second sets of all classes
+    if args.meta_type == 2:  #  use the second sets of all classes
         metaclass = cfg.TRAIN.ALLCLASSES_SECOND
-    if parser_data.meta_type == 3:  #  use the third sets of all classes
+    if args.meta_type == 3:  #  use the third sets of all classes
         metaclass = cfg.TRAIN.ALLCLASSES_THIRD
- 
-    label_dict={}
-
-    for i, cls in enumerate(metaclass):
-        label_dict[cls]=i+1
-    with open('./pascal_voc_classes.json', 'w', encoding='utf-8') as f:
-        json.dump(label_dict, f, indent=4)
-    # read class_indict
-    label_json_path = './pascal_voc_classes.json'
-    assert os.path.exists(label_json_path), "json file {} dose not exist.".format(label_json_path)
-    json_file = open(label_json_path, 'r')
-    class_dict = json.load(json_file)
-    category_index = {v: k for k, v in class_dict.items()}
-
-    VOC_root = parser_data.data_path
+    if args.meta_type == 4:  #  use the first sets of all classes
+        metaclass = cfg.TRAIN.ALLCLASSES_FORTH
+    if args.meta_type == 5:  #  use the second sets of all classes
+        metaclass = cfg.TRAIN.ALLCLASSES_FIFTH
+    if args.meta_type == 6:  #  use the third sets of all classes
+        metaclass = cfg.TRAIN.ALLCLASSES_SIXTH
     # check voc root
-    if os.path.exists(os.path.join(VOC_root, "VOCdevkit")) is False:
-        raise FileNotFoundError("VOCdevkit dose not in path:'{}'.".format(VOC_root))
-
-    # 注意这里的collate_fn是自定义的，因为读取的数据包括image和targets，不能直接使用默认的方法合成batch
-    batch_size = parser_data.bs
+    # load validation data set the same, 2012+2007 val.txt
+    batch_size = args.bs
     nw = min([os.cpu_count(), batch_size if batch_size > 1 else 0, 8])  # number of workers
     print('Using %g dataloader workers' % nw)
-
-    # load validation data set
-    val_dataset = VOC2007DataSet(VOC_root, data_transform["val"], "test.txt")
-    val_dataset_loader = torch.utils.data.DataLoader(val_dataset,
-                                                     batch_size=batch_size,
-                                                     shuffle=False,
-                                                     num_workers=nw,
-                                                     pin_memory=True,
-                                                     collate_fn=val_dataset.collate_fn)
+    val_data_set = COCODataSet(coco_root, metaclass, data_transform["val"], "val.txt")
+    category_index=val_data_set.category_index
+    val_data_set_loader = torch.utils.data.DataLoader(val_data_set,
+                                                      batch_size=batch_size,
+                                                      shuffle=False,
+                                                      pin_memory=True,
+                                                      num_workers=nw,
+                                                      collate_fn=val_data_set.collate_fn)
 
     # create model num_classes equal background + 20 classes
     # 注意，这里的norm_layer要和训练脚本中保持一致
     model = create_model(len(metaclass)+1)
 
     # 载入你自己训练好的模型权重
-    weights_path = os.path.join(parser_data.resume,"resnet101-model-{}-{}cls-{}shots.pth".format(parser_data.epoch,parser_data.cls,parser_data.shots))
+    weights_path = os.path.join(parser_data.resume_dir,"mob-model-{}-type{}-{}shots.pth".format(parser_data.epoch, parser_data.meta_type, parser_data.shots))
     print("Loading trained model from {}".format(weights_path))
     assert os.path.exists(weights_path), "not found {} file.".format(weights_path)
     weights_dict = torch.load(weights_path, map_location=device)
@@ -183,14 +188,14 @@ def main(parser_data):
     model.to(device)
 
     # evaluate on the test dataset
-    coco = get_coco_api_from_dataset(val_dataset)
+    coco = get_coco_api_from_dataset(val_data_set)
     iou_types = ["bbox"]
     coco_evaluator = CocoEvaluator(coco, iou_types)
     cpu_device = torch.device("cpu")
 
     model.eval()
     with torch.no_grad():
-        for image, targets in tqdm(val_dataset_loader, desc="validation..."):
+        for image, targets in tqdm(val_data_set_loader, desc="validation..."):
             # 将图片传入指定设备device
             image = list(img.to(device) for img in image)
 
@@ -219,7 +224,7 @@ def main(parser_data):
 
     print_voc = "\n".join(voc_map_info_list)
     print(print_voc)
-    model_name="resnet101-model-{}-{}cls-{}shots.pth".format(parser_data.epoch,parser_data.cls,parser_data.shots)[:-4]
+    model_name="mob-model-{}-type{}-{}shots.pth".format(parser_data.epoch, parser_data.meta_type, parser_data.shots)[:-4]
     # 将验证结果保存至txt文件中
     with open("{}/record_mAP_{}.txt".format(parser_data.output_dir,model_name), "w") as f:
         record_lines = ["COCO results:",
@@ -241,18 +246,18 @@ if __name__ == "__main__":
     # 数据集的根目录(VOCdevkit)
     parser.add_argument('--data_path', default='/data/', help='dataset root')
     # 若需要接着上次训练，则指定上次训练保存权重文件地址
-    parser.add_argument('--resume', default='', type=str, help='resume from checkpoint')
+    parser.add_argument('--resume_dir', default='./fine_baseline_weight/', type=str, help='resume from checkpoint')
     # split (1/2/3)
     parser.add_argument('--meta_type', default=1, type=int,
                         help='which split of VOC to implement, 1, 2, or 3')
     # batch size
-    parser.add_argument('--bs', default=1, type=int, metavar='N',
+    parser.add_argument('--bs', default=8, type=int, metavar='N',
                         help='batch size when validation.')
     # batch size
     parser.add_argument('--output_dir', default="./baseline_r", metavar='N',
                         help='where to save result')
                         # batch size
-    parser.add_argument('--epoch', default=9, metavar='N',
+    parser.add_argument('--epoch', default=29, metavar='N',
                         help='epoch of model to load')
                         # batch size
     parser.add_argument('--cls', default=20, metavar='N',

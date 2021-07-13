@@ -376,6 +376,7 @@ class COCODataSet(data.Dataset):
         
         #merge xml_list and filter classes
         self.class_dict = dict(zip(self.allclass, range(1,len(self.allclass)+1)))  # class to index mapping
+        self.category_index = {v: k for k, v in self.class_dict.items()}
         self.flip = flip(1)
         self.t_t = ToTensor()
         self.transforms = transforms

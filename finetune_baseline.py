@@ -179,7 +179,7 @@ def main(args):
 
         # save weights
         # 仅保存最后2个epoch的权重
-        if epoch in range(args.epochs)[-5:]:
+        if epoch == range(args.epochs)[-1]:
             save_files = {
                 'model': model.state_dict(),
                 'optimizer': optimizer.state_dict(),
