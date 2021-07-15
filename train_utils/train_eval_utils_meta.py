@@ -61,8 +61,8 @@ def train_one_epoch(model, optimizer, data_loader, meta_loader, device, epoch,
         with torch.cuda.amp.autocast(enabled=enable_amp):
             loss_dict = model(images, targets)
             # reduce weight of cls loss
-            loss_dict["loss_classifier"]=sum(cls_ for cls_ in loss_dict["loss_classifier"].values())
-            loss_dict["loss_classifier"]=cls_w*loss_dict["loss_classifier"]
+            # loss_dict["loss_classifier"]=sum(cls_ for cls_ in loss_dict["loss_classifier"].values())
+            # loss_dict["loss_classifier"]=cls_w*loss_dict["loss_classifier"]
             n+=1
             losses = sum(loss for loss in loss_dict.values())
 

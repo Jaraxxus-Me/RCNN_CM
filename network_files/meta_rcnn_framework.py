@@ -9,6 +9,7 @@ import torch.nn.functional as F
 from torchvision.ops import MultiScaleRoIAlign
 
 from .roi_head_meta import RoIHeads
+from .similarity import SimiHeads
 from .transform import GeneralizedRCNNTransform
 from .rpn_function import AnchorsGenerator, RPNHead, RegionProposalNetwork
 
@@ -211,7 +212,9 @@ class TwoMLPHead(nn.Module):
         self.fc7 = nn.Linear(representation_size, representation_size)
 
     def forward(self, x):
+        x1 = x[0,:,:,:].unsqueeze(0)
         x = x.flatten(start_dim=1)
+        x1 = x1.flatten(start_dim=1)
 
         x = F.relu(self.fc6(x))
         x = F.relu(self.fc7(x))
@@ -244,57 +247,20 @@ class FindPredictor(nn.Module):
         num_classes (int): number of output classes (including background)
     """
 
-    def __init__(self, in_channels, num_classes, phase):
+    def __init__(self, in_channels, phase):
         super(FindPredictor, self).__init__()
-        self.cls_score = nn.Linear(in_channels, num_classes)
-        self.bbox_pred = nn.Linear(in_channels, 4 * num_classes)
-        self.cos_score = PairwiseCosine()
-        bg_tensor = torch.rand(1, in_channels)
-        torch.nn.init.normal_(bg_tensor, mean=0, std=1)
-        self.bg = nn.Parameter(bg_tensor)
+        self.cls_score = nn.Linear(in_channels, 2)
+        self.bbox_pred = nn.Linear(in_channels, 4)
         self.phase = phase
-        # self.reweight = nn.Linear(2*num_classes, num_classes)
 
-    def forward(self, r1, r2, c1, c2, meta_tar):
-        # r1: box feature reg
-        # r2: proto feature reg
-        # c1: box feature cls
-        # c2: proto feature cls
+    def forward(self, r, c):
+        # r: box feature reg
+        # c: box feature cls
         # cls branch
-        c1 = c1.flatten(start_dim=1)
-        c2 = c2.flatten(start_dim=1)
-
-        if self.phase==1:
-            meta_score = self.cls_score(c2)
-            data_score = self.cls_score(c1)
-        else:
-            meta_score = None
-            data_score = None
-        cos_sim = self.cos_score(c1,c2)
-        bg_sim = self.cos_score(c1,torch.abs(self.bg))
-        if(torch.isnan(bg_sim).sum()>0):
-	        print("here!")
-        cos_sim = cos_sim.squeeze(0).clamp(min=0.01,max=0.999)
-        bg_sim = bg_sim.squeeze(0).clamp(min=0.01,max=0.999)
-        # print("similarity score:")
-        # print(max(bg_sim))
-        # print(min(bg_sim))
-        # print("bg vector:")
-        # print(self.bg)
-        # print(self.bg)
-        simi_matrix = torch.cat((bg_sim, cos_sim), dim=1)
-        # bg_sim = self.bg_proto(c1)
-        # bg_sim = F.softmax(bg_sim)
-        cls_scores=[data_score, meta_score, simi_matrix]
+        c1 = c.flatten(start_dim=1)
+        cls_scores = self.cls_score(c1)
         # reg branch
-        # p = r1.size()[0]
-        # n = r2.size()[0]
-        # assert r1.size()[1]==r2.size()[1]
-        # d = r1.size()[1]
-        # r1=r1.view(p,-1,d).expand(p,n,d)
-        # r2=r2.view(-1,n,d).expand(p,n,d)
-        # r = r1.add(r2)
-        bbox_deltas = self.bbox_pred(r1)
+        bbox_deltas = self.bbox_pred(r)
         # bbox_deltas=bbox_deltas.view(p,-1)
         return cls_scores, bbox_deltas
 
@@ -359,6 +325,7 @@ class Find(MetaRCNNBase):
             greater than rpn_score_thresh
         box_roi_pool (MultiScaleRoIAlign): the module which crops and resizes the feature maps in
             the locations indicated by the bounding boxes
+        simi_head (nn.Module): Calculate similarity map, given feature map and proto kernel
         box_head (nn.Module): module that takes the cropped feature maps as input
         box_predictor (nn.Module): module that takes the output of box_head and returns the
             classification logits and box regression deltas.
@@ -379,7 +346,7 @@ class Find(MetaRCNNBase):
 
     """
 
-    def __init__(self, backbone, num_classes=None,
+    def __init__(self, backbone,
                  # transform parameter
                  min_size=800, max_size=1333,      # 预处理resize时限制的最小尺寸与最大尺寸
                  image_mean=None, image_std=None,  # 预处理normalize时使用的均值和方差
@@ -392,7 +359,7 @@ class Find(MetaRCNNBase):
                  rpn_batch_size_per_image=256, rpn_positive_fraction=0.5,  # rpn计算损失时采样的样本数，以及正样本占总样本的比例
                  rpn_score_thresh=0.0,
                  # Box parameters
-                 box_roi_pool=None, box_head=None, box_predictor=None,
+                 box_roi_pool=None, simi_head=None, box_head=None, box_predictor=None,
                  # 移除低目标概率      fast rcnn中进行nms处理的阈值   对预测结果根据score排序取前100个目标
                  box_score_thresh=0.05, box_nms_thresh=0.5, box_detections_per_img=100,
                  box_fg_iou_thresh=0.5, box_bg_iou_thresh=0.5,   # fast rcnn计算误差时，采集正负样本设置的阈值
@@ -407,15 +374,6 @@ class Find(MetaRCNNBase):
 
         assert isinstance(rpn_anchor_generator, (AnchorsGenerator, type(None)))
         assert isinstance(box_roi_pool, (MultiScaleRoIAlign, type(None)))
-
-        if num_classes is not None:
-            if box_predictor is not None:
-                raise ValueError("num_classes should be None when box_predictor "
-                                 "is specified")
-        else:
-            if box_predictor is None:
-                raise ValueError("num_classes should not be None when box_predictor "
-                                 "is not specified")
 
         # 预测特征层的channels
         out_channels = backbone.out_channels
@@ -473,12 +431,13 @@ class Find(MetaRCNNBase):
             representation_size = 1024
             box_predictor = FindPredictor(
                 representation_size,
-                num_classes, phase)
+                phase)
 
+        simi_head = SimiHeads(out_channels)
         # 将roi pooling, box_head以及box_predictor结合在一起
         roi_heads = RoIHeads(
             # box
-            box_roi_pool, box_head, box_predictor,
+            box_roi_pool, simi_head, box_head, box_predictor,
             box_fg_iou_thresh, box_bg_iou_thresh,  # 0.5  0.5
             box_batch_size_per_image, box_positive_fraction,  # 512  0.25
             bbox_reg_weights,

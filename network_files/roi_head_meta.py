@@ -1,5 +1,5 @@
 from typing import Optional, List, Dict, Tuple
-
+from collections import OrderedDict
 import torch
 from torch import Tensor
 import torch.nn.functional as F
@@ -9,12 +9,12 @@ from . import boxes as box_ops
 
 
 def fastrcnn_loss(class_logits, box_regression, labels, meta_label, regression_targets, phase):
-    # type: (List[Tensor], Tensor, List[Tensor], List[Tensor], List[Tensor], int) -> Tuple[Tensor, Tensor]
+    # type: (Tensor, Tensor, List[Tensor], List[Tensor], List[Tensor], int) -> Tuple[Tensor, Tensor]
     """
     Computes the loss for Faster R-CNN.
 
     Arguments:
-        class_logits : [dataloss,metaloss,cosloss] 预测类别概率信息，shape=[num_anchors, num_classes]
+        class_logits : 预测类别概率信息，shape=[num_anchors, 2]
         box_regression : 预测边目标界框回归信息
         labels : 真实类别信息
         regression_targets : 真实目标边界框信息
@@ -23,109 +23,40 @@ def fastrcnn_loss(class_logits, box_regression, labels, meta_label, regression_t
         classification_loss (Tensor)
         box_loss (Tensor)
     """
-    # class logits split: 3
-    if phase == 1:
-        data_classlo = class_logits[0]
-        meta_classlo = class_logits[1]
-    cos_lo = class_logits[-1]
-
-    # labels filter: <16
+    num = len(meta_label)
+    class_logits = class_logits.view(-1, num, 2)
+    box_regression = box_regression.view(-1, num, 4)
+    # labels filter
     labels = torch.cat(labels, dim=0)
     meta_label = torch.cat(meta_label, dim=0)
-
     proper_ind=[True if (la in meta_label or la==0) else False for la in labels]
     # filter proposals in logits
-    if phase==1:
-        data_classlo_=data_classlo[proper_ind]
-    cos_lo_=cos_lo[proper_ind]
+    class_logits_=class_logits[proper_ind]
     labels_=labels[proper_ind]
     box_regression_ = box_regression[proper_ind]
     # filter regression targets
     regression_targets = torch.cat(regression_targets, dim=0)
     regression_targets_ = regression_targets[proper_ind]
     # 计算Linear类别损失信息
-    if phase ==1:
-        classification_loss_data = F.cross_entropy(data_classlo_, labels_)
-        classification_loss_meta = F.cross_entropy(meta_classlo, meta_label)
-    else:
-        classification_loss_data = Tensor([0]).to(labels_.device)
-        classification_loss_meta = Tensor([0]).to(labels_.device)
-
-    # Calculate cosine similarity loss
+    bg_logits = torch.mean(class_logits_[:,:,0], dim=1)
+    class_logits_ = torch.cat((bg_logits.unsqueeze(1), class_logits_[:,:,1]), dim=1)
     meta_dict = {int(meta_label[i]):(i+1) for i in range(len(meta_label))}
     meta_dict[0]=0
     # remap label_ to cos_label
-    cos_label = [meta_dict[int(c)] for c in labels_]
-    cos_label = Tensor(cos_label).to(labels_.device).to(labels_.dtype)
-    # calculate cos matrix
-    def cal_cos_loss(cos_lo, cos_label):
-        # true positive loss: -log(y_i|x)
-        normaled_cos = F.normalize(cos_lo, p=1, dim=1)
-        normaled_cos.clamp(min=0.01,max=0.99)
-        log_pos_score = torch.log(normaled_cos)
-        cos_loss = F.nll_loss(log_pos_score, cos_label)
-        # if postive loss ==nan
-        # false positive loss: -max(log((1-y_i)|x))
-        # skip
-        # true negative loss: - max(log(y)|x)
-        return cos_loss
-    classification_loss_cos = cal_cos_loss(cos_lo_, cos_label)
-    # calculate pos and neg loss respectively
-    # log_cos = torch.log(cos_matrix)
-    # nega_cos = log_cos[back_ind]
-    # pos_cos = log_cos[fore_ind]
-    # nega_label = cos_label[back_ind]
-    # pos_label = cos_label[fore_ind]
-    # if(torch.isnan(log_cos).sum()>0):
-	#     print("here!")
-    # classification_loss_cos = F.nll_loss(nega_cos, nega_label) + F.nll_loss(pos_cos, pos_label)
-    # # back_ind = torch.where(torch.eq(labels_, 0))[0]
-    # fore_ind = torch.where(torch.gt(labels_, 0))[0]
-    # assert len(back_ind)*len(fore_ind)!=0
-    # nega_cos = cos_lo_[back_ind]
-    # pos_cos = cos_lo_[fore_ind]
-    # # Calculate background loss, should all be 0
-    # los_nega = torch.sum(nega_cos)/nega_cos.numel()
-    # # Calculate foreground loss, should be:
-    # # 1 - sim[i] or sim[i] 
-    # pos_lab = labels_[fore_ind]
-    # # ask Chen if propoer
-    # def cal_pos_loss(pos_cos, pos_lab, meta_label):
-    #     meta_dict = {int(meta_label[i]):i for i in range(len(meta_label))}
-    #     fake_pos_loss=Tensor([0]).to(meta_label.device)
-    #     true_pos_loss=Tensor([0]).to(meta_label.device)
-    #     for i,c in enumerate(pos_lab):
-    #         true_pos_loss += (1-pos_cos[i,meta_dict[int(c)]])
-    #         fake_pos_loss += (torch.sum(pos_cos[i,:])-pos_cos[i,meta_dict[int(c)]])
-    #     return true_pos_loss+fake_pos_loss, meta_dict
-
-    # los_pos, meta_dict = cal_pos_loss(pos_cos, pos_lab, meta_label)
-    # los_pos = los_pos/pos_cos.numel()
-
-    # classification_loss_cos = los_nega + los_pos
+    map_label = [meta_dict[int(c)] for c in labels_]
+    map_label = Tensor(map_label).to(labels_.device).to(labels_.dtype)
+    # calculate cls loss
+    classification_loss = F.cross_entropy(class_logits_, map_label)
     # should be impossible
     if labels_.max()==0:
         box_loss=Tensor([0]).to(labels_.device)
-        classification_loss={"Li_data":classification_loss_data,"Li_meta":classification_loss_meta,"Cos":classification_loss_cos}
+        classification_loss=classification_loss
         return classification_loss, box_loss
-    else:
-        classification_loss={"Li_data":classification_loss_data,"Li_meta":classification_loss_meta,"Cos":classification_loss_cos}
-
-    # get indices that correspond to the regression targets for
-    # the corresponding ground truth labels, to be used with
-    # advanced indexing
     # 返回标签类别大于0的索引
-    # sampled_pos_inds_subset = torch.nonzero(torch.gt(labels, 0)).squeeze(1)
-    sampled_pos_inds_subset = torch.where(torch.gt(labels_, 0))[0]
-
+    sampled_pos_inds_subset = torch.where(torch.gt(map_label, 0))[0]
     # 返回标签类别大于0位置的类别信息, remap
-    labels_pos = labels_[sampled_pos_inds_subset]
-    # labels_pos = [meta_dict[int(c)] for c in labels_pos]
-    # if len(labels_pos) == 0:
-    #     box_loss=Tensor([0]).to(labels_.device)
-    #     return classification_loss, box_loss
-    # shape=[num_proposal, num_classes]
-    N, num_classes = cos_lo_.shape
+    labels_pos = map_label[sampled_pos_inds_subset] - 1
+    N, num_classes = class_logits_.shape
     box_regression_ = box_regression_.reshape(N, -1, 4)
 
     # 计算边界框损失信息
@@ -135,7 +66,7 @@ def fastrcnn_loss(class_logits, box_regression, labels, meta_label, regression_t
         regression_targets_[sampled_pos_inds_subset],
         beta=1 / 9,
         size_average=False,
-    ) / labels_.numel()
+    ) / map_label.numel()
 
     return classification_loss, box_loss
 
@@ -149,6 +80,7 @@ class RoIHeads(torch.nn.Module):
 
     def __init__(self,
                  box_roi_pool,   # Multi-scale RoIAlign pooling
+                 simi_head,      # Calculate Similarity map
                  box_head,       # TwoMLPHead
                  box_predictor,  # FastRCNNPredictor
                  # Faster R-CNN training
@@ -178,6 +110,7 @@ class RoIHeads(torch.nn.Module):
         self.box_coder = det_utils.BoxCoder(bbox_reg_weights)
 
         self.box_roi_pool = box_roi_pool    # Multi-scale RoIAlign pooling
+        self.simi_head = simi_head
         self.box_head_r = box_head["reg"]            # TwoMLPHead
         self.box_head_c = box_head["cls"]
         self.box_predictor = box_predictor  # FastRCNNPredictor
@@ -341,7 +274,7 @@ class RoIHeads(torch.nn.Module):
         return proposals, labels, regression_targets
 
     def postprocess_detections(self,
-                               class_logits,    # type: List[Tensor]
+                               class_logits,    # type: Tensor
                                box_regression,  # type: Tensor
                                proposals,       # type: List[Tensor]
                                image_shapes,     # type: List[Tuple[int, int]]
@@ -367,15 +300,21 @@ class RoIHeads(torch.nn.Module):
         Returns:
 
         """
-        cos_simi = class_logits[-1]
-
+        device = class_logits.device
+        # 预测目标类别数
+        num = len(meta_lable)
+        # process class_logits
+        class_logits = class_logits.view(-1, num, 2)
+        bg_logits = torch.mean(class_logits[:,:,0], dim=1)
+        class_logits = torch.cat((bg_logits.unsqueeze(1), class_logits[:,:,1]), dim=1)
+        box_regression = box_regression.view(class_logits.shape[0], -1)
         # 获取每张图像的预测bbox数量
         boxes_per_image = [boxes_in_image.shape[0] for boxes_in_image in proposals]
         # 根据proposal以及预测的回归参数计算出最终bbox坐标
         pred_boxes = self.box_coder.decode(box_regression, proposals)
 
-        # use cos_simi as cls
-        pred_scores = F.normalize(cos_simi, p=1, dim=1)
+        # 对预测类别结果进行softmax处理
+        pred_scores = F.softmax(class_logits, -1)
         # split boxes and scores per image
         # 根据每张图像的预测bbox数量分割结果
         pred_boxes_list = pred_boxes.split(boxes_per_image, 0)
@@ -402,7 +341,7 @@ class RoIHeads(torch.nn.Module):
             # remove prediction with the background label
             scores = scores[:, 1:]
             labels = labels[:, 1:]
-            boxes = boxes[:, 1:]
+            # boxes = boxes[:, 1:]
 
             # batch everything, by making every class prediction be a separate instance
             boxes = boxes.reshape(-1, 4)
@@ -436,15 +375,6 @@ class RoIHeads(torch.nn.Module):
 
         return all_boxes, all_scores, all_labels
 
-    # def forward(self,
-    #             features,       # type: Dict[str, Tensor]
-    #             proto_feat,       # type: Dict[str, Tensor]
-    #             proposals,      # type: List[Tensor]
-    #             image_shapes,   # type: List[Tuple[int, int]]
-    #             prnimage_shapes,   # type: List[Tuple[int, int]]
-    #             targets=None,    # type: Optional[List[Dict[str, Tensor]]]
-    #             prn_targets=None    # type: Optional[List[Dict]]
-    #             ):
     def forward(self,
             features,       # type: Dict[str, Tensor]
             proposals,      # type: List[Tensor]
@@ -494,19 +424,23 @@ class RoIHeads(torch.nn.Module):
             cls_pro_feat_list = list(class_prototype.values())
             proto_features = torch.cat(cls_pro_feat_list, dim=0)
 
-        box_features = self.box_roi_pool(features, proposals, image_shapes)
+        similarity_map = self.simi_head(features["0"], proto_features)
+        b, n, d = similarity_map.size(0), similarity_map.size(1), similarity_map.size(2)
+        # merge cls and d, do pooling on cls*d
+        similarity_map = OrderedDict([('0', similarity_map.reshape(similarity_map.size(0), -1, similarity_map.size(3), similarity_map.size(4)))])
+        box_features = self.box_roi_pool(similarity_map, proposals, image_shapes)
+        p = box_features.size(0)
+        # seperate d, merge p and n, do MLP on d*a*a of all p*n proposals
+        box_features=box_features.view(p*n,-1,box_features.size(2),box_features.size(3))
         # 通过roi_pooling后的两层全连接层
-        # box_features_shape: [num_proposals, representation_size]
         box_features_r = self.box_head_r(box_features)
-        proto_features_r = self.box_head_r(proto_features)
         box_features_c = self.box_head_c(box_features)
-        proto_features_c = self.box_head_c(proto_features)
         # 接着分别预测目标类别和边界框回归参数
         if prn_targets!=None:
             meta_label = [prt["labels"][0] for prt in prn_targets]
         else:
             meta_label = [prt[0] for prt in list(class_prototype.keys())]
-        class_logits, box_regression = self.box_predictor(box_features_r, proto_features_r, box_features_c, proto_features_c, prn_targets)
+        class_logits, box_regression = self.box_predictor(box_features_r, box_features_c)
 
         result = torch.jit.annotate(List[Dict[str, torch.Tensor]], [])
         losses = {}
