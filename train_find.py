@@ -217,12 +217,12 @@ def main(args):
         params = []
         for key, value in dict(model.named_parameters()).items():
             if value.requires_grad:
-                if 'bg' in key:
+                if 'roi_heads.simi_head' in key:
                     params += [{'params': [value], 'lr': 0.01}]
                 else:
                     params += [{'params': [value]}]
         # params = [p for p in model.parameters() if p.requires_grad]
-        optimizer = torch.optim.SGD(params, lr=0.005,
+        optimizer = torch.optim.SGD(params, lr=0.008,
                                     momentum=0.9, weight_decay=0.0005)
 
         init_epochs = 5
@@ -265,7 +265,7 @@ def main(args):
         params = []
         for key, value in dict(model.named_parameters()).items():
             if value.requires_grad:
-                if 'bg' in key:
+                if 'roi_heads.simi_head' in key:
                     params += [{'params': [value], 'lr': 0.01}]
                 else:
                     params += [{'params': [value]}]
@@ -301,7 +301,7 @@ def main(args):
 
             # save weights
             # 仅保存最后5个epoch的权重
-            if epoch in range(num_epochs+init_epochs)[-5:]:
+            if epoch in range(num_epochs+init_epochs)[-10:]:
                 save_files = {
                     'model': model.state_dict(),
                     'optimizer': optimizer.state_dict(),
@@ -368,7 +368,7 @@ if __name__ == "__main__":
     parser.add_argument('--bs_v', default=2, type=int, metavar='N',
                         help='batch size when training.')
     # metadata batch size
-    parser.add_argument('--metabs', default=8, type=int, metavar='N',
+    parser.add_argument('--metabs', default=6, type=int, metavar='N',
                         help='batch size when training.')
     # weight of cls loss during training
     parser.add_argument('--cls', default=0.3, type=float,
