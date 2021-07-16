@@ -301,13 +301,13 @@ def main(args):
 
             # save weights
             # 仅保存最后5个epoch的权重
-            if epoch in range(num_epochs+init_epochs)[-10:]:
-                save_files = {
-                    'model': model.state_dict(),
-                    'optimizer': optimizer.state_dict(),
-                    'lr_scheduler': lr_scheduler.state_dict(),
-                    'epoch': epoch}
-                torch.save(save_files, "{}/mobile-find-{}.pth".format(args.output_dir, epoch))
+            # if epoch in range(num_epochs+init_epochs)[-10:]:
+            save_files = {
+                'model': model.state_dict(),
+                'optimizer': optimizer.state_dict(),
+                'lr_scheduler': lr_scheduler.state_dict(),
+                'epoch': epoch}
+            torch.save(save_files, "{}/mobile-find-{}.pth".format(args.output_dir, epoch))
             # plot loss and lr curve
             if len(train_loss) != 0 and len(learning_rate) != 0:
                 from plot_curve import plot_loss_and_lr
@@ -382,4 +382,4 @@ if __name__ == "__main__":
     if not os.path.exists(args.output_dir):
         os.makedirs(args.output_dir)
 
-    main(args)
+    main(args

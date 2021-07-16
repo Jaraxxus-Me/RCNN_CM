@@ -16,7 +16,7 @@ class SimiHeads(nn.Module):
         #         nn.Conv2d(channels, 4,  kernel_size=3, stride=1,padding=1),
         #         )
         self.conv1=nn.Sequential(
-                nn.Conv2d(channels, channels,  kernel_size=3, stride=1),
+                nn.Conv2d(channels, channels,  kernel_size=3, stride=1, padding=1),
                 nn.BatchNorm2d(channels),
                 nn.ReLU(inplace=True),
                 )
