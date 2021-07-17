@@ -79,7 +79,7 @@ def main(args):
     # load dataset
     if args.phase == 1:
         # First phase only use the base classes, each class has 200 class data
-        shots = 200
+        shots = 2
         
         if args.meta_type == 1:
             args.train_txt = "voc_2007_train_first_split+voc_2012_train_first_split"
@@ -226,27 +226,28 @@ def main(args):
                                     momentum=0.9, weight_decay=0.0005)
 
         init_epochs = 5
-        for epoch in range(init_epochs):
-            # train for one epoch, printing every 10 iterations
-            mean_loss, lr = utils.train_one_epoch(model, optimizer, train_data_loader, metaloader,
-                                            device, epoch, print_freq=50, cls_w=args.cls, metabs=args.metabs, warmup=True)
-            train_loss.append(mean_loss.item())
-            learning_rate.append(lr)
+        if args.resume=="":
+            for epoch in range(init_epochs):
+                # train for one epoch, printing every 10 iterations
+                mean_loss, lr = utils.train_one_epoch(model, optimizer, train_data_loader, metaloader,
+                                                device, epoch, print_freq=50, cls_w=args.cls, metabs=args.metabs, warmup=True)
+                train_loss.append(mean_loss.item())
+                learning_rate.append(lr)
 
-            # evaluate on the test dataset
-            coco_info, pro = utils.evaluate(model, val_data_set_loader, metaloader, 2, device=device)
+                # evaluate on the test dataset
+                coco_info, pro = utils.evaluate(model, val_data_set_loader, metaloader, 2, device=device)
 
-            # write into txt
-            with open(results_file, "a") as f:
-                # 写入的数据包括coco指标还有loss和learning rate
-                result_info = [str(round(i, 4)) for i in coco_info + [mean_loss.item()]] + [str(round(lr, 6))]
-                txt = "epoch:{} {}".format(epoch, '  '.join(result_info))
-                f.write(txt + "\n")
+                # write into txt
+                with open(results_file, "a") as f:
+                    # 写入的数据包括coco指标还有loss和learning rate
+                    result_info = [str(round(i, 4)) for i in coco_info + [mean_loss.item()]] + [str(round(lr, 6))]
+                    txt = "epoch:{} {}".format(epoch, '  '.join(result_info))
+                    f.write(txt + "\n")
 
 
-            val_map.append(coco_info[1])  # pascal mAP
+                val_map.append(coco_info[1])  # pascal mAP
 
-        torch.save(model.state_dict(), "{}/pretrain.pth".format(args.output_dir))
+            torch.save(model.state_dict(), "{}/pretrain.pth".format(args.output_dir))
 
         # # # # # # # # # # # # # # # # # # # # # # # # # # # #
         #  second unfrozen backbone and train all network     #
@@ -277,7 +278,16 @@ def main(args):
                                                     step_size=3,
                                                     gamma=0.33)
         num_epochs = args.epochs
-        for epoch in range(init_epochs, num_epochs+init_epochs, 1):
+
+        if args.resume!="":
+            checkpoint = torch.load(args.resume, map_location=device)
+            model.load_state_dict(checkpoint['model'])
+            optimizer.load_state_dict(checkpoint['optimizer'])
+            lr_scheduler.load_state_dict(checkpoint['lr_scheduler'])
+            init_epochs = checkpoint['epoch'] + 1
+            print("the training process from epoch{}...".format(init_epochs))
+
+        for epoch in range(init_epochs, num_epochs+5, 1):
             # train for one epoch, printing every 50 iterations
             mean_loss, lr = utils.train_one_epoch(model, optimizer, train_data_loader, metaloader,
                                             device, epoch, print_freq=50,cls_w=args.cls, metabs=args.metabs)
@@ -343,7 +353,7 @@ if __name__ == "__main__":
     # 文件保存地址
     parser.add_argument('--output_dir', default='./find_weights', help='path where to save')
     # 若需要接着上次训练，则指定上次训练保存权重文件地址
-    parser.add_argument('--resume', default='', type=str, help='resume from checkpoint')
+    parser.add_argument('--resume', default='./find_weights/mobile-find-11.pth', type=str, help='resume from checkpoint')
     # 指定接着从哪个epoch数开始训练
     parser.add_argument('--start_epoch', default=0, type=int, help='start epoch')
     # 训练的总epoch数

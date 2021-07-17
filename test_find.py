@@ -17,14 +17,15 @@ import pickle
 import transforms
 from network_files import Find, AnchorsGenerator
 from backbone import MobileNetV2, vgg, resnet101
-from finetune_data import MetaDataset, FtDataSet, COCODataSet
+from finetune_data_coco import MetaDataset, FtDataSet, COCODataSet
+from finetune_data_subt import MetaData, FtData, SubTData
 from train_utils import get_coco_api_from_dataset, CocoEvaluator
 from train_utils.config import cfg
 from train_utils import train_eval_utils_meta as utils
 from collections import OrderedDict
 
 
-def create_model(num_classes, phase):
+def create_model(phase):
 #     # https://download.pytorch.org/models/vgg16-397923af.pth
 #     # 如果使用vgg16的话就下载对应预训练权重并取消下面注释，接着把mobilenetv2模型对应的两行代码注释掉
 #     # vgg_feature = vgg(model_name="vgg16", weights_path="./backbone/vgg16.pth").features
@@ -43,7 +44,6 @@ def create_model(num_classes, phase):
                                                     sampling_ratio=2)  # 采样率
 
     model = Find(backbone=backbone,
-                       num_classes=num_classes,
                        rpn_anchor_generator=anchor_generator,
                        box_roi_pool=roi_pooler, phase=phase)
 #     # ResNet backbone
@@ -149,46 +149,70 @@ def main(parser_data):
     }
 
     #dataset config
-    coco_root = args.data_path  # VOCdevkit
-    if args.meta_type == 1:  #  use the first sets of all classes
-        metaclass = cfg.TRAIN.ALLCLASSES_FIRST
-    if args.meta_type == 2:  #  use the second sets of all classes
-        metaclass = cfg.TRAIN.ALLCLASSES_SECOND
-    if args.meta_type == 3:  #  use the third sets of all classes
-        metaclass = cfg.TRAIN.ALLCLASSES_THIRD
-    if args.meta_type == 4:  #  use the first sets of all classes
-        metaclass = cfg.TRAIN.ALLCLASSES_FORTH
-    if args.meta_type == 5:  #  use the second sets of all classes
-        metaclass = cfg.TRAIN.ALLCLASSES_FIFTH
-    if args.meta_type == 6:  #  use the third sets of all classes
-        metaclass = cfg.TRAIN.ALLCLASSES_SIXTH
-    # check voc root
-    # load validation data set the same, 2012+2007 val.txt
-    batch_size = args.bs
-    nw = min([os.cpu_count(), batch_size if batch_size > 1 else 0, 8])  # number of workers
-    print('Using %g dataloader workers' % nw)
-    val_data_set = COCODataSet(coco_root, metaclass, data_transform["val"], "val.txt")
-    category_index=val_data_set.category_index
-    val_data_set_loader = torch.utils.data.DataLoader(val_data_set,
-                                                      batch_size=batch_size,
-                                                      shuffle=False,
-                                                      pin_memory=True,
-                                                      num_workers=nw,
-                                                      collate_fn=val_data_set.collate_fn)
-
+    if args.dataset=="coco":
+        coco_root = args.data_path  # VOCdevkit
+        if args.meta_type == 1:  #  use the first sets of all classes
+            metaclass = cfg.TRAIN.ALLCLASSES_FIRST
+        if args.meta_type == 2:  #  use the second sets of all classes
+            metaclass = cfg.TRAIN.ALLCLASSES_SECOND
+        if args.meta_type == 3:  #  use the third sets of all classes
+            metaclass = cfg.TRAIN.ALLCLASSES_THIRD
+        if args.meta_type == 4:  #  use the first sets of all classes
+            metaclass = cfg.TRAIN.ALLCLASSES_FORTH
+        if args.meta_type == 5:  #  use the second sets of all classes
+            metaclass = cfg.TRAIN.ALLCLASSES_FIFTH
+        if args.meta_type == 6:  #  use the third sets of all classes
+            metaclass = cfg.TRAIN.ALLCLASSES_SIXTH
+        # check voc root
+        # load validation data set the same, 2012+2007 val.txt
+        batch_size = args.bs
+        nw = min([os.cpu_count(), batch_size if batch_size > 1 else 0, 8])  # number of workers
+        print('Using %g dataloader workers' % nw)
+        val_data_set = COCODataSet(coco_root, metaclass, data_transform["val"], "val.txt")
+        category_index=val_data_set.category_index
+        val_data_set_loader = torch.utils.data.DataLoader(val_data_set,
+                                                        batch_size=batch_size,
+                                                        shuffle=False,
+                                                        pin_memory=True,
+                                                        num_workers=nw,
+                                                        collate_fn=val_data_set.collate_fn)
+    else:
+        subt_root = args.data_path  # VOCdevkit
+        json_info = os.path.join(subt_root,"Type_Info","SUBT_type_{:s}.json".format(args.dataset[-1]))
+        with open(json_info, "r") as f:
+            info_dict = json.load(f)
+            metaclass = info_dict["classes"]
+        # load validation data set the same, 2012+2007 val.txt
+        batch_size = args.bs
+        nw = min([os.cpu_count(), batch_size if batch_size > 1 else 0, 8])  # number of workers
+        print('Using %g dataloader workers' % nw)
+        val_data_set = SubTData(subt_root, metaclass, data_transform["val"], "val_{:s}.txt".format(args.dataset[-1]))
+        category_index=val_data_set.category_index
+        val_data_set_loader = torch.utils.data.DataLoader(val_data_set,
+                                                        batch_size=batch_size,
+                                                        shuffle=False,
+                                                        pin_memory=True,
+                                                        num_workers=nw,
+                                                        collate_fn=val_data_set.collate_fn)
     # create model num_classes equal background + 20 classes
     # 注意，这里的norm_layer要和训练脚本中保持一致
-    model = create_model(len(metaclass)+1, 2)
+    model = create_model(2)
 
     # 载入你自己训练好的模型权重
-    weights_path = os.path.join(parser_data.resume_dir,"mob-find-{}-type{}-{}shots.pth".format(parser_data.epoch, parser_data.meta_type, parser_data.shots))
+    if parser_data.dataset=="coco":
+        weights_path = os.path.join(parser_data.resume_dir,"mob-find-{}-type{}-{}shots.pth".format(parser_data.epoch, parser_data.meta_type, parser_data.shots))
+    else:
+        weights_path = os.path.join(parser_data.resume_dir,"mob-find-{}-type{}-{}shots.pth".format(parser_data.epoch, parser_data.dataset[-1], parser_data.shots))
     # weights_path = os.path.join(parser_data.resume_dir,"mobile-find-20.pth")
     print("Loading trained model from {}".format(weights_path))
     assert os.path.exists(weights_path), "not found {} file.".format(weights_path)
     weights_dict = torch.load(weights_path, map_location=device)
     model.load_state_dict(weights_dict['model'])
     # load class prototype
-    pkl_save_path = os.path.join(parser_data.resume_dir, 'meta_type_{}'.format(parser_data.meta_type))
+    if parser_data.dataset=="coco":
+        pkl_save_path = os.path.join(parser_data.resume_dir, 'meta_type_{}'.format(parser_data.meta_type))
+    else:
+        pkl_save_path = os.path.join(parser_data.resume_dir, 'meta_type_{}'.format(parser_data.dataset[-1]))
     pkl_file = open(os.path.join(pkl_save_path,
                                     str(parser_data.epoch) + '_shots_' + str(parser_data.shots) + '_mean_class_attentions.pkl'), 'rb')
 
@@ -254,6 +278,7 @@ if __name__ == "__main__":
     # 使用设备类型
     parser.add_argument('--device', default='cuda', help='device')
     # 数据集的根目录(VOCdevkit)
+    parser.add_argument('--dataset', default='subt_a', help='dataset:coo or subt')
     parser.add_argument('--data_path', default='/data/', help='dataset root')
     # 若需要接着上次训练，则指定上次训练保存权重文件地址
     parser.add_argument('--resume_dir', default='./fine_find_weight/', type=str, help='resume from checkpoint')
@@ -261,14 +286,14 @@ if __name__ == "__main__":
     parser.add_argument('--meta_type', default=1, type=int,
                         help='which split of VOC to implement, 1, 2, or 3')
     # batch size
-    parser.add_argument('--bs', default=8, type=int, metavar='N',
+    parser.add_argument('--bs', default=2, type=int, metavar='N',
                         help='batch size when validation.')
     # batch size
     parser.add_argument('--output_dir', default="./find_r", metavar='N',
                         help='where to save result')
     parser.add_argument('--epoch', default=29, metavar='N',
                         help='epoch of model to load')
-    parser.add_argument('--shots', default=2, metavar='N',
+    parser.add_argument('--shots', default=1, metavar='N',
                         help='shots of model to load')
 
     args = parser.parse_args()

@@ -212,7 +212,10 @@ def main(args):
             if (class_proto_dict != None) and (epoch == range(args.epochs)[-1]):
                 # save class_prototype for test:
                 # mean_class_attentions = {k: sum(v) / len(v) for k, v in class_attentions.items()}
-                save_path = os.path.join(args.output_dir, 'meta_type_{}'.format(args.meta_type))
+                if args.dataset=="coco":
+                    save_path = os.path.join(args.output_dir, 'meta_type_{}'.format(args.meta_type))
+                else:
+                    save_path = os.path.join(args.output_dir, 'meta_type_{}'.format(args.dataset[-1]))
                 if not os.path.exists(save_path):
                     os.makedirs(save_path)
                 with open(os.path.join(save_path,
@@ -237,7 +240,10 @@ def main(args):
                 'optimizer': optimizer.state_dict(),
                 'lr_scheduler': lr_scheduler.state_dict(),
                 'epoch': epoch}
-            torch.save(save_files, "./fine_find_weight/mob-find-{}-type{}-{}shots.pth".format(epoch,args.meta_type,args.shots))
+            if args.dataset=="coco":
+                torch.save(save_files, "./fine_find_weight/mob-find-{}-type{}-{}shots.pth".format(epoch,args.meta_type,args.shots))
+            else:
+                torch.save(save_files, "./fine_find_weight/mob-find-{}-type{}-{}shots.pth".format(epoch,args.dataset[-1],args.shots))
 
     # plot loss and lr curve
     if len(train_loss) != 0 and len(learning_rate) != 0:
@@ -274,7 +280,7 @@ if __name__ == "__main__":
     parser.add_argument('--meta_type', default=1, type=int,
                         help='which split of CoCo to implement, 1(a), 2(b), or 3(c)')
     # shots
-    parser.add_argument('--shots', default=1, type=int,
+    parser.add_argument('--shots', default=3, type=int,
                         help='how many shots in few-shot learning')
     # 训练的batch size
     parser.add_argument('--bs', default=2, type=int, metavar='N',
