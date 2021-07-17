@@ -14,7 +14,7 @@ from train_utils import train_eval_utils_meta as utils
 from collections import OrderedDict
 
 
-def create_model(num_classes, phase):
+def create_model(phase):
 #     # https://download.pytorch.org/models/vgg16-397923af.pth
 #     # 如果使用vgg16的话就下载对应预训练权重并取消下面注释，接着把mobilenetv2模型对应的两行代码注释掉
 #     # vgg_feature = vgg(model_name="vgg16", weights_path="./backbone/vgg16.pth").features
@@ -33,7 +33,6 @@ def create_model(num_classes, phase):
                                                     sampling_ratio=2)  # 采样率
 
     model = Find(backbone=backbone,
-                       num_classes=num_classes,
                        rpn_anchor_generator=anchor_generator,
                        box_roi_pool=roi_pooler, phase=phase)
 #     # ResNet backbone
@@ -119,7 +118,7 @@ def main(args):
                                                       num_workers=nw,
                                                       collate_fn=train_data_set.collate_fn)
     # create model num_classes equal background + 20 classes
-    model = create_model(len(metaclass)+1, 2)
+    model = create_model(2)
     model.to(device)
     new_state_dict = model.state_dict()
     print("loading checkpoint %s" % (args.resume))
@@ -138,7 +137,7 @@ def main(args):
     
     # unfreeze weights of the last layers, others freeze
     for name, parameter in model.named_parameters():
-        if ("roi_heads.box_predictor.bbox_pred" in name) or ("roi_heads.box_predictor.bg" in name):
+        if ("roi_heads.box_predictor" in name):
             parameter.requires_grad = True
         else:
             parameter.requires_grad = False
@@ -229,7 +228,7 @@ if __name__ == "__main__":
     # 文件保存地址
     parser.add_argument('--output_dir', default='./fine_find_weight/', help='path where to save')
     # 若需要接着上次训练，则指定上次训练保存权重文件地址
-    parser.add_argument('--resume', default='./find_weights/mobile-find-20.pth', type=str, help='resume from checkpoint')
+    parser.add_argument('--resume', default='./find_weights/mobile-find-10.pth', type=str, help='resume from checkpoint')
     # 指定接着从哪个epoch数开始训练
     parser.add_argument('--start_epoch', default=0, type=int, help='start epoch')
     # 训练的总epoch数
@@ -242,10 +241,10 @@ if __name__ == "__main__":
     parser.add_argument('--shots', default=1, type=int,
                         help='how many shots in few-shot learning')
     # 训练的batch size
-    parser.add_argument('--bs', default=4, type=int, metavar='N',
+    parser.add_argument('--bs', default=2, type=int, metavar='N',
                         help='batch size when training.')
     # validation batch size
-    parser.add_argument('--bs_v', default=8, type=int, metavar='N',
+    parser.add_argument('--bs_v', default=2, type=int, metavar='N',
                         help='batch size when training.')
         # metadata batch size
     parser.add_argument('--metabs', default=8, type=int, metavar='N',
