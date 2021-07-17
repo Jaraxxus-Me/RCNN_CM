@@ -218,11 +218,11 @@ def main(args):
         for key, value in dict(model.named_parameters()).items():
             if value.requires_grad:
                 if 'roi_heads.simi_head' in key:
-                    params += [{'params': [value], 'lr': 0.01}]
+                    params += [{'params': [value], 'lr': 0.005}]
                 else:
                     params += [{'params': [value]}]
         # params = [p for p in model.parameters() if p.requires_grad]
-        optimizer = torch.optim.SGD(params, lr=0.008,
+        optimizer = torch.optim.SGD(params, lr=0.005,
                                     momentum=0.9, weight_decay=0.0005)
 
         init_epochs = 5
@@ -235,17 +235,17 @@ def main(args):
                 learning_rate.append(lr)
 
                 # evaluate on the test dataset
-                coco_info, pro = utils.evaluate(model, val_data_set_loader, metaloader, 2, device=device)
+                # coco_info, pro = utils.evaluate(model, val_data_set_loader, metaloader, 2, device=device)
 
-                # write into txt
-                with open(results_file, "a") as f:
-                    # 写入的数据包括coco指标还有loss和learning rate
-                    result_info = [str(round(i, 4)) for i in coco_info + [mean_loss.item()]] + [str(round(lr, 6))]
-                    txt = "epoch:{} {}".format(epoch, '  '.join(result_info))
-                    f.write(txt + "\n")
+                # # write into txt
+                # with open(results_file, "a") as f:
+                #     # 写入的数据包括coco指标还有loss和learning rate
+                #     result_info = [str(round(i, 4)) for i in coco_info + [mean_loss.item()]] + [str(round(lr, 6))]
+                #     txt = "epoch:{} {}".format(epoch, '  '.join(result_info))
+                #     f.write(txt + "\n")
 
 
-                val_map.append(coco_info[1])  # pascal mAP
+                # val_map.append(coco_info[1])  # pascal mAP
 
             torch.save(model.state_dict(), "{}/pretrain.pth".format(args.output_dir))
 
@@ -267,11 +267,11 @@ def main(args):
         for key, value in dict(model.named_parameters()).items():
             if value.requires_grad:
                 if 'roi_heads.simi_head' in key:
-                    params += [{'params': [value], 'lr': 0.01}]
+                    params += [{'params': [value], 'lr': 0.005}]
                 else:
                     params += [{'params': [value]}]
         # params = [p for p in model.parameters() if p.requires_grad]
-        optimizer = torch.optim.SGD(params, lr=0.005,
+        optimizer = torch.optim.SGD(params, lr=0.001,
                                     momentum=0.9, weight_decay=0.0005)
         # learning rate scheduler
         lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer,
@@ -298,26 +298,26 @@ def main(args):
             lr_scheduler.step()
 
             # evaluate on the test dataset
-            coco_info, pro = utils.evaluate(model, val_data_set_loader, metaloader, 2, device=device)
+            # coco_info, pro = utils.evaluate(model, val_data_set_loader, metaloader, 2, device=device)
 
-            # write into txt
-            with open(results_file, "a") as f:
-                # 写入的数据包括coco指标还有loss和learning rate
-                result_info = [str(round(i, 4)) for i in coco_info + [mean_loss.item()]] + [str(round(lr, 6))]
-                txt = "epoch:{} {}".format(epoch, '  '.join(result_info))
-                f.write(txt + "\n")
+            # # write into txt
+            # with open(results_file, "a") as f:
+            #     # 写入的数据包括coco指标还有loss和learning rate
+            #     result_info = [str(round(i, 4)) for i in coco_info + [mean_loss.item()]] + [str(round(lr, 6))]
+            #     txt = "epoch:{} {}".format(epoch, '  '.join(result_info))
+            #     f.write(txt + "\n")
 
-            val_map.append(coco_info[1])  # pascal mAP
+            # val_map.append(coco_info[1])  # pascal mAP
 
             # save weights
             # 仅保存最后5个epoch的权重
             # if epoch in range(num_epochs+init_epochs)[-10:]:
-            save_files = {
-                'model': model.state_dict(),
-                'optimizer': optimizer.state_dict(),
-                'lr_scheduler': lr_scheduler.state_dict(),
-                'epoch': epoch}
-            torch.save(save_files, "{}/mobile-find-{}.pth".format(args.output_dir, epoch))
+            # save_files = {
+            #     'model': model.state_dict(),
+            #     'optimizer': optimizer.state_dict(),
+            #     'lr_scheduler': lr_scheduler.state_dict(),
+            #     'epoch': epoch}
+            # torch.save(save_files, "{}/mobile-find-{}.pth".format(args.output_dir, epoch))
             # plot loss and lr curve
             if len(train_loss) != 0 and len(learning_rate) != 0:
                 from plot_curve import plot_loss_and_lr
