@@ -79,7 +79,7 @@ def main(args):
     # load dataset
     if args.phase == 1:
         # First phase only use the base classes, each class has 200 class data
-        shots = 2
+        shots = 1
         
         if args.meta_type == 1:
             args.train_txt = "voc_2007_train_first_split+voc_2012_train_first_split"
@@ -353,7 +353,7 @@ if __name__ == "__main__":
     # 文件保存地址
     parser.add_argument('--output_dir', default='./find_weights', help='path where to save')
     # 若需要接着上次训练，则指定上次训练保存权重文件地址
-    parser.add_argument('--resume', default='./find_weights/mobile-find-11.pth', type=str, help='resume from checkpoint')
+    parser.add_argument('--resume', default='', type=str, help='resume from checkpoint')
     # 指定接着从哪个epoch数开始训练
     parser.add_argument('--start_epoch', default=0, type=int, help='start epoch')
     # 训练的总epoch数
