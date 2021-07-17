@@ -1,6 +1,7 @@
 import os
 import datetime
 import pickle
+import json
 
 import torch
 import torchvision
@@ -8,7 +9,8 @@ import torchvision
 import transforms
 from network_files import Find, AnchorsGenerator
 from backbone import MobileNetV2, vgg, resnet101
-from finetune_data import MetaDataset, FtDataSet, COCODataSet
+from finetune_data_coco import MetaDataset, FtDataSet, COCODataSet
+from finetune_data_subt import MetaData, FtData, SubTData
 from train_utils.config import cfg
 from train_utils import train_eval_utils_meta as utils
 from collections import OrderedDict
@@ -75,48 +77,84 @@ def main(args):
     }
 
     #dataset config
-    coco_root = args.data_path  # VOCdevkit
-    shots = args.shots
-    if args.meta_type == 1:  #  use the first sets of all classes
-        metaclass = cfg.TRAIN.ALLCLASSES_FIRST
-    if args.meta_type == 2:  #  use the second sets of all classes
-        metaclass = cfg.TRAIN.ALLCLASSES_SECOND
-    if args.meta_type == 3:  #  use the third sets of all classes
-        metaclass = cfg.TRAIN.ALLCLASSES_THIRD
-    if args.meta_type == 4:  #  use the first sets of all classes
-        metaclass = cfg.TRAIN.ALLCLASSES_FORTH
-    if args.meta_type == 5:  #  use the second sets of all classes
-        metaclass = cfg.TRAIN.ALLCLASSES_FIFTH
-    if args.meta_type == 6:  #  use the third sets of all classes
-        metaclass = cfg.TRAIN.ALLCLASSES_SIXTH
-    img_set = "train"
+    if args.dataset=="coco":
+        coco_root = args.data_path  # VOCdevkit
+        shots = args.shots
+        if args.meta_type == 1:  #  use the first sets of all classes
+            metaclass = cfg.TRAIN.ALLCLASSES_FIRST
+        if args.meta_type == 2:  #  use the second sets of all classes
+            metaclass = cfg.TRAIN.ALLCLASSES_SECOND
+        if args.meta_type == 3:  #  use the third sets of all classes
+            metaclass = cfg.TRAIN.ALLCLASSES_THIRD
+        if args.meta_type == 4:  #  use the first sets of all classes
+            metaclass = cfg.TRAIN.ALLCLASSES_FORTH
+        if args.meta_type == 5:  #  use the second sets of all classes
+            metaclass = cfg.TRAIN.ALLCLASSES_FIFTH
+        if args.meta_type == 6:  #  use the third sets of all classes
+            metaclass = cfg.TRAIN.ALLCLASSES_SIXTH
+        img_set = "train"
 
-    # load train data set
-    # for baseline metadata is used to generate shots.txt
-    metadata = MetaDataset(coco_root, img_set, metaclass, shots)
-    metaloader = torch.utils.data.DataLoader(metadata, batch_size=1,
-                                                shuffle=False, num_workers=0, pin_memory=True)
+        # load train data set
+        # for baseline metadata is used to generate shots.txt
+        metadata = MetaDataset(coco_root, img_set, metaclass, shots)
+        metaloader = torch.utils.data.DataLoader(metadata, batch_size=1,
+                                                    shuffle=False, num_workers=0, pin_memory=True)
 
-    train_data_set = FtDataSet(coco_root, metaclass, shots)
-    # 注意这里的collate_fn是自定义的，因为读取的数据包括image和targets，不能直接使用默认的方法合成batch
-    batch_size = args.bs
-    nw = min([os.cpu_count(), batch_size if batch_size > 1 else 0, 8])  # number of workers
-    print('Using %g dataloader workers' % nw)
-    train_data_loader = torch.utils.data.DataLoader(train_data_set,
-                                                    batch_size=batch_size,
-                                                    shuffle=True,
-                                                    num_workers=nw,
-                                                    collate_fn=FtDataSet.collate_fn)
+        train_data_set = FtDataSet(coco_root, metaclass, shots)
+        # 注意这里的collate_fn是自定义的，因为读取的数据包括image和targets，不能直接使用默认的方法合成batch
+        batch_size = args.bs
+        nw = min([os.cpu_count(), batch_size if batch_size > 1 else 0, 8])  # number of workers
+        print('Using %g dataloader workers' % nw)
+        train_data_loader = torch.utils.data.DataLoader(train_data_set,
+                                                        batch_size=batch_size,
+                                                        shuffle=True,
+                                                        num_workers=nw,
+                                                        collate_fn=FtDataSet.collate_fn)
 
-    # load validation data set the same, 2012+2007 val.txt
-    batch_size = args.bs_v
-    val_data_set = COCODataSet(coco_root, metaclass, data_transform["val"], "val.txt")
-    val_data_set_loader = torch.utils.data.DataLoader(val_data_set,
-                                                      batch_size=batch_size,
-                                                      shuffle=False,
-                                                      pin_memory=True,
-                                                      num_workers=nw,
-                                                      collate_fn=train_data_set.collate_fn)
+        # load validation data set the same, 2012+2007 val.txt
+        batch_size = args.bs_v
+        val_data_set = COCODataSet(coco_root, metaclass, data_transform["val"], "val.txt")
+        val_data_set_loader = torch.utils.data.DataLoader(val_data_set,
+                                                        batch_size=batch_size,
+                                                        shuffle=False,
+                                                        pin_memory=True,
+                                                        num_workers=nw,
+                                                        collate_fn=train_data_set.collate_fn)
+        
+    else:
+        subt_root = args.data_path  # VOCdevkit
+        json_info = os.path.join(subt_root,"Type_Info","SUBT_type_{:s}.json".format(args.dataset[-1]))
+        with open(json_info, "r") as f:
+            info_dict = json.load(f)
+            metaclass = info_dict["classes"]
+        img_set = "train_{:s}".format(args.dataset[-1])
+        shots = args.shots
+        # load train data set
+        # for baseline metadata is used to generate shots.txt
+        metadata = MetaData(subt_root, img_set, metaclass, shots)
+        metaloader = torch.utils.data.DataLoader(metadata, batch_size=1,
+                                                    shuffle=False, num_workers=0, pin_memory=True)
+
+        train_data_set = FtData(subt_root, metaclass, shots)
+        # 注意这里的collate_fn是自定义的，因为读取的数据包括image和targets，不能直接使用默认的方法合成batch
+        batch_size = args.bs
+        nw = min([os.cpu_count(), batch_size if batch_size > 1 else 0, 8])  # number of workers
+        print('Using %g dataloader workers' % nw)
+        train_data_loader = torch.utils.data.DataLoader(train_data_set,
+                                                        batch_size=batch_size,
+                                                        shuffle=True,
+                                                        num_workers=nw,
+                                                        collate_fn=FtDataSet.collate_fn)
+
+        # load validation data set the same, 2012+2007 val.txt
+        batch_size = args.bs_v
+        val_data_set = SubTData(subt_root, metaclass, data_transform["val"], "val_{:s}.txt".format(args.dataset[-1]))
+        val_data_set_loader = torch.utils.data.DataLoader(val_data_set,
+                                                        batch_size=batch_size,
+                                                        shuffle=False,
+                                                        pin_memory=True,
+                                                        num_workers=nw,
+                                                        collate_fn=train_data_set.collate_fn)
     # create model num_classes equal background + 20 classes
     model = create_model(2)
     model.to(device)
@@ -125,12 +163,12 @@ def main(args):
     checkpoint = torch.load(args.resume)
 
     # save original trained weights of linear layers, expand the matrix dimension
-    for name in checkpoint['model']:
-        if ("roi_heads.box_predictor.cls_score" in name) or ("roi_heads.box_predictor.bbox_pred" in name):
-            init_weight=new_state_dict[name]
-            # init_weight[:checkpoint['model'][name].size()[0]] = checkpoint['model'][name]
-            # delete cls and reg last layer
-            checkpoint['model'][name] = init_weight
+    # for name in checkpoint['model']:
+    #     if ("roi_heads.box_predictor.cls_score" in name) or ("roi_heads.box_predictor.bbox_pred" in name):
+    #         init_weight=new_state_dict[name]
+    #         # init_weight[:checkpoint['model'][name].size()[0]] = checkpoint['model'][name]
+    #         # delete cls and reg last layer
+    #         checkpoint['model'][name] = init_weight
     # load params to model
     new_state_dict.update(checkpoint['model'])
     model.load_state_dict(new_state_dict)
@@ -146,11 +184,8 @@ def main(args):
     params = []
     for key, value in dict(model.named_parameters()).items():
         if value.requires_grad:
-            if 'bg' in key:
-                params += [{'params': [value], 'lr': 0.005}]
-            else:
                 params += [{'params': [value]}]
-    optimizer = torch.optim.SGD(params, lr=0.003,
+    optimizer = torch.optim.SGD(params, lr=0.001,
                                 momentum=0.9, weight_decay=0.0005)
     # learning rate scheduler
     lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer,
@@ -224,11 +259,12 @@ if __name__ == "__main__":
     # 训练设备类型
     parser.add_argument('--device', default='cuda:1', help='device')
     # 训练数据集的根目录(VOCdevkit)
-    parser.add_argument('--data_path', default='./', help='dataset')
+    parser.add_argument('--dataset', default='subt_a', help='dataset:coo or subt')
+    parser.add_argument('--data_path', default='/media/li/H/CMU_DataSet/SUBT', help='dataset')
     # 文件保存地址
     parser.add_argument('--output_dir', default='./fine_find_weight/', help='path where to save')
     # 若需要接着上次训练，则指定上次训练保存权重文件地址
-    parser.add_argument('--resume', default='./find_weights/mobile-find-10.pth', type=str, help='resume from checkpoint')
+    parser.add_argument('--resume', default='./find_weights/mobile-find-11.pth', type=str, help='resume from checkpoint')
     # 指定接着从哪个epoch数开始训练
     parser.add_argument('--start_epoch', default=0, type=int, help='start epoch')
     # 训练的总epoch数
@@ -236,7 +272,7 @@ if __name__ == "__main__":
                         help='number of total epochs to run')
     # split (1/2/3)
     parser.add_argument('--meta_type', default=1, type=int,
-                        help='which split of VOC to implement, 1, 2, or 3')
+                        help='which split of CoCo to implement, 1(a), 2(b), or 3(c)')
     # shots
     parser.add_argument('--shots', default=1, type=int,
                         help='how many shots in few-shot learning')
