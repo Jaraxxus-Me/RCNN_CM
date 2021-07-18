@@ -6,7 +6,6 @@ __pycache__/
 # C extensions
 *.so
 *.pyc
-.vscode/
 # Distribution / packaging
 .Python
 build/
@@ -42,6 +41,5 @@ venv.bak/
 *.pkl
 baseline_weights/
 find_weights/
-fine_baseli_weight/
+fine_baseline_weight/
 fine_find_weight/
-run/

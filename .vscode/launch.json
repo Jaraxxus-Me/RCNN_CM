@@ -16,7 +16,7 @@
             "pathMappings": [                          // Local<->remote file path correspondence, usually
                 {                                      // depends on how you mount files when 'docker run'
                     "localRoot": "${workspaceFolder}", // e.g. bender:$remoteRoot/module/source.py
-                    "remoteRoot": "/home/user/ws/FIND/Siamese_val"     //   == perceptron:$localRoot/module/source.py
+                    "remoteRoot": "/home/user/ws/FIND/Siamese_focal"     //   == perceptron:$localRoot/module/source.py
                 }                                      // Will fail to set breakpoint if wrong
             ],
             "justMyCode": false                        // Optional, personally find helpful

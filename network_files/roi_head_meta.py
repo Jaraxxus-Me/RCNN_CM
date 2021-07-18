@@ -3,12 +3,13 @@ from collections import OrderedDict
 import torch
 from torch import Tensor
 import torch.nn.functional as F
+from .focal import FocalLoss
 
 from . import det_utils
 from . import boxes as box_ops
 
 
-def fastrcnn_loss(class_logits, box_regression, labels, meta_label, regression_targets, phase):
+def fastrcnn_loss(class_logits, box_regression, labels, meta_label, regression_targets, focal_loss):
     # type: (Tensor, Tensor, List[Tensor], List[Tensor], List[Tensor], int) -> Tuple[Tensor, Tensor]
     """
     Computes the loss for Faster R-CNN.
@@ -46,7 +47,7 @@ def fastrcnn_loss(class_logits, box_regression, labels, meta_label, regression_t
     map_label = [meta_dict[int(c)] for c in labels_]
     map_label = Tensor(map_label).to(labels_.device).to(labels_.dtype)
     # calculate cls loss
-    classification_loss = F.cross_entropy(class_logits_, map_label)
+    classification_loss = focal_loss(class_logits_, map_label)
     # should be impossible
     if labels_.max()==0:
         box_loss=Tensor([0]).to(labels_.device)
@@ -114,6 +115,7 @@ class RoIHeads(torch.nn.Module):
         self.box_head_r = box_head["reg"]            # TwoMLPHead
         self.box_head_c = box_head["cls"]
         self.box_predictor = box_predictor  # FastRCNNPredictor
+        self.focal_loss = FocalLoss(gamma=2)
 
         self.score_thresh = score_thresh  # default: 0.05
         self.nms_thresh = nms_thresh      # default: 0.5
@@ -447,7 +449,7 @@ class RoIHeads(torch.nn.Module):
         if self.training:
             assert labels is not None and regression_targets is not None
             loss_classifier, loss_box_reg = fastrcnn_loss(
-                class_logits, box_regression, labels, meta_label, regression_targets, self.phase)
+                class_logits, box_regression, labels, meta_label, regression_targets, self.focal_loss)
             losses = {
                 "loss_classifier": loss_classifier,
                 "loss_box_reg": loss_box_reg

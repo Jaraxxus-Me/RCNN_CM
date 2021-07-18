@@ -58,7 +58,7 @@ def create_model(phase):
 
 def main(args):
     #config device
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    device = torch.device(args.device if torch.cuda.is_available() else "cpu")
     print("Using {} device training.".format(device.type))
 
     if not os.path.exists("find_r"):
@@ -234,18 +234,18 @@ def main(args):
                 train_loss.append(mean_loss.item())
                 learning_rate.append(lr)
 
-                # evaluate on the test dataset
-                coco_info, pro = utils.evaluate(model, val_data_set_loader, metaloader, 2, device=device)
+            # evaluate on the test dataset
+            coco_info, pro = utils.evaluate(model, val_data_set_loader, metaloader, 2, device=device)
 
-                # write into txt
-                with open(results_file, "a") as f:
-                    # 写入的数据包括coco指标还有loss和learning rate
-                    result_info = [str(round(i, 4)) for i in coco_info + [mean_loss.item()]] + [str(round(lr, 6))]
-                    txt = "epoch:{} {}".format(epoch, '  '.join(result_info))
-                    f.write(txt + "\n")
+            # write into txt
+            with open(results_file, "a") as f:
+                # 写入的数据包括coco指标还有loss和learning rate
+                result_info = [str(round(i, 4)) for i in coco_info + [mean_loss.item()]] + [str(round(lr, 6))]
+                txt = "epoch:{} {}".format(epoch, '  '.join(result_info))
+                f.write(txt + "\n")
 
 
-                val_map.append(coco_info[1])  # pascal mAP
+            val_map.append(coco_info[1])  # pascal mAP
 
             torch.save(model.state_dict(), "{}/pretrain.pth".format(args.output_dir))
 
@@ -347,13 +347,13 @@ if __name__ == "__main__":
         description=__doc__)
 
     # 训练设备类型
-    parser.add_argument('--device', default='cuda:0', help='device')
+    parser.add_argument('--device', default='cuda:2', help='device')
     # 训练数据集的根目录(VOCdevkit)
     parser.add_argument('--data_path', default='./', help='dataset')
     # 文件保存地址
     parser.add_argument('--output_dir', default='./find_weights', help='path where to save')
     # 若需要接着上次训练，则指定上次训练保存权重文件地址
-    parser.add_argument('--resume', default='./find_weights/mobile-find-11.pth', type=str, help='resume from checkpoint')
+    parser.add_argument('--resume', default='./find_weights/mobile-find-7.pth', type=str, help='resume from checkpoint')
     # 指定接着从哪个epoch数开始训练
     parser.add_argument('--start_epoch', default=0, type=int, help='start epoch')
     # 训练的总epoch数
@@ -372,13 +372,13 @@ if __name__ == "__main__":
     parser.add_argument('--meta_train', default=True, type=bool,
                         help='is doing meta training/fine tuning?')
     # 训练的batch size
-    parser.add_argument('--bs', default=4, type=int, metavar='N',
+    parser.add_argument('--bs', default=2, type=int, metavar='N',
                         help='batch size when training.')
     # validation batch size
     parser.add_argument('--bs_v', default=2, type=int, metavar='N',
                         help='batch size when training.')
     # metadata batch size
-    parser.add_argument('--metabs', default=6, type=int, metavar='N',
+    parser.add_argument('--metabs', default=4, type=int, metavar='N',
                         help='batch size when training.')
     # weight of cls loss during training
     parser.add_argument('--cls', default=0.3, type=float,

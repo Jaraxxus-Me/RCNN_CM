@@ -227,7 +227,9 @@ class VOCDataSet(Dataset):
         self.flip = flip(1)
         self.t_t = ToTensor()
         self.transforms = transforms
-        self.filer_data(self.xml_list_07+self.xml_list_12)
+        li = self.xml_list_07+self.xml_list_12
+        # li = li[0:100]
+        self.filer_data(li)
         if "val" in txt_name:
             self.prepare_data(self.xml_list, False)
             print("use VOC 2007+2012 val.txt, total images: {:d}".format(len(self.data["path"])))
