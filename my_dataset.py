@@ -228,7 +228,7 @@ class VOCDataSet(Dataset):
         self.t_t = ToTensor()
         self.transforms = transforms
         li = self.xml_list_07+self.xml_list_12
-        li=li[0:100]
+        # li=li[0:100]
         self.filer_data(li)
         if "val" in txt_name:
             self.prepare_data(self.xml_list, False)
