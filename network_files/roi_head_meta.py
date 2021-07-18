@@ -50,7 +50,7 @@ def fastrcnn_loss(class_logits, box_regression, labels, meta_label, regression_t
     neg_ind = torch.where(torch.eq(map_label, 0))[0]
     classification_loss_pos = F.cross_entropy(class_logits_[pos_ind], map_label[pos_ind])
     classification_loss_neg = F.cross_entropy(class_logits_[neg_ind], map_label[neg_ind])
-    classification_loss = classification_loss_pos+classification_loss_neg
+    classification_loss = 0.25*classification_loss_pos+classification_loss_neg
     # print("positive proposal cls loss: "+str(classification_loss_pos))
     # print("negative proposal cls loss: "+str(classification_loss_neg))
     # should be impossible

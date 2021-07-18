@@ -44,10 +44,7 @@ class SimiHeads(nn.Module):
         # can't use view
         x = x.reshape(-1, num*channel, x.size(3), x.size(4))
         kernel = kernel.view(num*channel, 1, kernel.size(2), kernel.size(3))
-        out = []
-        for b in range(x.size(0)):
-            out.append(F.conv2d(x[b,:,:,:].unsqueeze(0), kernel, groups=num*channel, padding=padding))
-        out = t.cat(out,dim=0)
+        out = F.conv2d(x, kernel, groups=num*channel, padding=padding)
         out = out.view(x.size(0), num, channel, out.size(2), out.size(3))
         return out
     
