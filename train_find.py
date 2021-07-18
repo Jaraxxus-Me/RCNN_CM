@@ -79,7 +79,7 @@ def main(args):
     # load dataset
     if args.phase == 1:
         # First phase only use the base classes, each class has 200 class data
-        shots = 1
+        shots = 200
         
         if args.meta_type == 1:
             args.train_txt = "voc_2007_train_first_split+voc_2012_train_first_split"
@@ -298,46 +298,36 @@ def main(args):
             lr_scheduler.step()
 
             # evaluate on the test dataset
-            # coco_info, pro = utils.evaluate(model, val_data_set_loader, metaloader, 2, device=device)
+            if epoch in range(num_epochs+5)[-5:]:
+                coco_info, pro = utils.evaluate(model, val_data_set_loader, metaloader, 2, device=device)
 
-            # # write into txt
-            # with open(results_file, "a") as f:
-            #     # 写入的数据包括coco指标还有loss和learning rate
-            #     result_info = [str(round(i, 4)) for i in coco_info + [mean_loss.item()]] + [str(round(lr, 6))]
-            #     txt = "epoch:{} {}".format(epoch, '  '.join(result_info))
-            #     f.write(txt + "\n")
+            # write into txt
+            with open(results_file, "a") as f:
+                # 写入的数据包括coco指标还有loss和learning rate
+                result_info = [str(round(i, 4)) for i in coco_info + [mean_loss.item()]] + [str(round(lr, 6))]
+                txt = "epoch:{} {}".format(epoch, '  '.join(result_info))
+                f.write(txt + "\n")
 
-            # val_map.append(coco_info[1])  # pascal mAP
+            val_map.append(coco_info[1])  # pascal mAP
 
             # save weights
             # 仅保存最后5个epoch的权重
             # if epoch in range(num_epochs+init_epochs)[-10:]:
-            # save_files = {
-            #     'model': model.state_dict(),
-            #     'optimizer': optimizer.state_dict(),
-            #     'lr_scheduler': lr_scheduler.state_dict(),
-            #     'epoch': epoch}
-            # torch.save(save_files, "{}/mobile-find-{}.pth".format(args.output_dir, epoch))
+            save_files = {
+                'model': model.state_dict(),
+                'optimizer': optimizer.state_dict(),
+                'lr_scheduler': lr_scheduler.state_dict(),
+                'epoch': epoch}
+            torch.save(save_files, "{}/mobile-find-{}.pth".format(args.output_dir, epoch))
             # plot loss and lr curve
-            if len(train_loss) != 0 and len(learning_rate) != 0:
-                from plot_curve import plot_loss_and_lr
-                plot_loss_and_lr(train_loss, learning_rate)
+        if len(train_loss) != 0 and len(learning_rate) != 0:
+            from plot_curve import plot_loss_and_lr
+            plot_loss_and_lr(train_loss, learning_rate)
 
-            # plot mAP curve
-            if len(val_map) != 0:
-                from plot_curve import plot_map
-                plot_map(val_map)
-
-
-            # plot loss and lr curve
-            if len(train_loss) != 0 and len(learning_rate) != 0:
-                from plot_curve import plot_loss_and_lr
-                plot_loss_and_lr(train_loss, learning_rate)
-
-            # plot mAP curve
-            if len(val_map) != 0:
-                from plot_curve import plot_map
-                plot_map(val_map)
+        # plot mAP curve
+        if len(val_map) != 0:
+            from plot_curve import plot_map
+            plot_map(val_map)
 
 
 if __name__ == "__main__":
