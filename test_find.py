@@ -257,7 +257,10 @@ def main(parser_data):
 
     print_voc = "\n".join(voc_map_info_list)
     print(print_voc)
-    model_name="mob-model-{}-type{}-{}shots.pth".format(parser_data.epoch, parser_data.meta_type, parser_data.shots)[:-4]
+    if parser_data.dataset=="coco":
+        model_name="mob-model-{}-type{}-{}shots.pth".format(parser_data.epoch, parser_data.meta_type, parser_data.shots)[:-4]
+    else:
+        model_name="mob-model-{}-type{}-{}shots.pth".format(parser_data.epoch, parser_data.dataset[-1], parser_data.shots)[:-4]
     # model_name="mobile-find-20.pth"
     # 将验证结果保存至txt文件中
     with open("{}/record_mAP_{}.txt".format(parser_data.output_dir,model_name), "w") as f:
@@ -291,7 +294,7 @@ if __name__ == "__main__":
     # batch size
     parser.add_argument('--output_dir', default="./find_r", metavar='N',
                         help='where to save result')
-    parser.add_argument('--epoch', default=29, metavar='N',
+    parser.add_argument('--epoch', default=9, metavar='N',
                         help='epoch of model to load')
     parser.add_argument('--shots', default=1, metavar='N',
                         help='shots of model to load')

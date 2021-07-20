@@ -3,7 +3,7 @@ import datetime
 
 import torch
 import torchvision
-
+from collections import OrderedDict
 import transforms
 from network_files import Find, AnchorsGenerator
 from backbone import MobileNetV2, vgg, resnet101
@@ -281,11 +281,30 @@ def main(args):
 
         if args.resume!="":
             checkpoint = torch.load(args.resume, map_location=device)
-            model.load_state_dict(checkpoint['model'])
+            try:
+                model.load_state_dict(checkpoint['model'])
+            except RuntimeError:
+                print("loading multi gpu model")
+                init_weight=OrderedDict()
+                for name in checkpoint['model']:
+                    init_weight[name[7:]]=checkpoint['model'][name]
+                    # init_weight[:checkpoint['model'][name].size()[0]] = checkpoint['model'][name]
+                    # delete cls and reg last layer
+                model.load_state_dict(init_weight)
             optimizer.load_state_dict(checkpoint['optimizer'])
             lr_scheduler.load_state_dict(checkpoint['lr_scheduler'])
             init_epochs = checkpoint['epoch'] + 1
             print("the training process from epoch{}...".format(init_epochs))
+            if args.test_only:
+                print("Test only:")
+                with open(results_file, "a") as f:
+                    coco_info, pro = utils.evaluate(model, val_data_set_loader, metaloader, 2, device=device)
+                    # 写入的数据包括coco指标还有loss和learning rate
+                    result_info = [str(round(i, 4)) for i in coco_info + [mean_loss.item()]] + [str(round(lr, 6))]
+                    txt = "epoch:{} {}".format(epoch, '  '.join(result_info))
+                    f.write(txt + "\n")
+                val_map.append(coco_info[1])  # pascal mAP
+                return
 
         for epoch in range(init_epochs, num_epochs+5, 1):
             # train for one epoch, printing every 50 iterations
@@ -349,11 +368,11 @@ if __name__ == "__main__":
     # 训练设备类型
     parser.add_argument('--device', default='cuda:2', help='device')
     # 训练数据集的根目录(VOCdevkit)
-    parser.add_argument('--data_path', default='./', help='dataset')
+    parser.add_argument('--data_path', default='/home/user/ws/FSDet/data', help='dataset')
     # 文件保存地址
     parser.add_argument('--output_dir', default='./find_weights', help='path where to save')
     # 若需要接着上次训练，则指定上次训练保存权重文件地址
-    parser.add_argument('--resume', default='./find_weights/mobile-find-7.pth', type=str, help='resume from checkpoint')
+    parser.add_argument('--resume', default='./find_weights/mobile-find-19.pth', type=str, help='resume from checkpoint')
     # 指定接着从哪个epoch数开始训练
     parser.add_argument('--start_epoch', default=0, type=int, help='start epoch')
     # 训练的总epoch数
@@ -377,6 +396,13 @@ if __name__ == "__main__":
     # validation batch size
     parser.add_argument('--bs_v', default=2, type=int, metavar='N',
                         help='batch size when training.')
+        # 不训练，仅测试
+    parser.add_argument(
+        "--test_only",
+        dest="test_only",
+        help="Only test the model",
+        action="store_true",
+    )
     # metadata batch size
     parser.add_argument('--metabs', default=4, type=int, metavar='N',
                         help='batch size when training.')

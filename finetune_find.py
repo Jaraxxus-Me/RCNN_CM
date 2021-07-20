@@ -270,11 +270,11 @@ if __name__ == "__main__":
     # 文件保存地址
     parser.add_argument('--output_dir', default='./fine_find_weight/', help='path where to save')
     # 若需要接着上次训练，则指定上次训练保存权重文件地址
-    parser.add_argument('--resume', default='./find_weights/mobile-find-11.pth', type=str, help='resume from checkpoint')
+    parser.add_argument('--resume', default='./find_weights/mobile-find-20.pth', type=str, help='resume from checkpoint')
     # 指定接着从哪个epoch数开始训练
     parser.add_argument('--start_epoch', default=0, type=int, help='start epoch')
     # 训练的总epoch数
-    parser.add_argument('--epochs', default=30, type=int, metavar='N',
+    parser.add_argument('--epochs', default=10, type=int, metavar='N',
                         help='number of total epochs to run')
     # split (1/2/3)
     parser.add_argument('--meta_type', default=1, type=int,
