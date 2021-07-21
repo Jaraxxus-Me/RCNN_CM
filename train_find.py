@@ -77,39 +77,27 @@ def main(args):
         raise FileNotFoundError("VOCdevkit dose not in path:'{}'.".format(VOC_root))
 
     # load dataset
-    if args.phase == 1:
-        # First phase only use the base classes, each class has 200 class data
+    shots = 200
+    if args.debug:
         shots = 2
         
-        if args.meta_type == 1:
-            args.train_txt = "voc_2007_train_first_split+voc_2012_train_first_split"
-            metaclass = cfg.TRAIN.BASECLASSES_FIRST
-            allclass = cfg.TRAIN.ALLCLASSES_FIRST
-        elif args.meta_type == 2:
-            args.train_txt = "voc_2007_train_second_split+voc_2012_train_second_split"
-            metaclass = cfg.TRAIN.BASECLASSES_SECOND
-            allclass = cfg.TRAIN.ALLCLASSES_SECOND
-        elif args.meta_type == 3:
-            args.train_txt = "voc_2007_train_third_split+voc_2012_train_third_split"
-            metaclass = cfg.TRAIN.BASECLASSES_THIRD
-            allclass = cfg.TRAIN.ALLCLASSES_THIRD
-    else:
-        # Second phase only use fewshot number of base and novel classes
-        shots = args.shots
-        if args.meta_type == 1:  #  use the first sets of all classes
-            metaclass = cfg.TRAIN.ALLCLASSES_FIRST
-            args.train_txt = "voc_2007_train_first"
-        if args.meta_type == 2:  #  use the second sets of all classes
-            metaclass = cfg.TRAIN.ALLCLASSES_SECOND
-            args.train_txt = "voc_2007_train_second"
-        if args.meta_type == 3:  #  use the third sets of all classes
-            metaclass = cfg.TRAIN.ALLCLASSES_THIRD
-            args.train_txt = "voc_2007_train_third"
+    if args.meta_type == 1:
+        args.train_txt = "voc_2007_train_first_split+voc_2012_train_first_split"
+        metaclass = cfg.TRAIN.BASECLASSES_FIRST
+        allclass = cfg.TRAIN.ALLCLASSES_FIRST
+    elif args.meta_type == 2:
+        args.train_txt = "voc_2007_train_second_split+voc_2012_train_second_split"
+        metaclass = cfg.TRAIN.BASECLASSES_SECOND
+        allclass = cfg.TRAIN.ALLCLASSES_SECOND
+    elif args.meta_type == 3:
+        args.train_txt = "voc_2007_train_third_split+voc_2012_train_third_split"
+        metaclass = cfg.TRAIN.BASECLASSES_THIRD
+        allclass = cfg.TRAIN.ALLCLASSES_THIRD
 
         # load train data set
     # VOCdevkit -> VOC2012/VOC2007 -> ImageSets -> Main -> train.txt
     # new dataset, combine VOC2012/VOC2017, train.txt, 8218 images
-    train_data_set = VOCDataSet(VOC_root, metaclass, data_transform["train"], args.train_txt)
+    train_data_set = VOCDataSet(VOC_root, metaclass, data_transform["train"], args.train_txt, args.debug)
     # 注意这里的collate_fn是自定义的，因为读取的数据包括image和targets，不能直接使用默认的方法合成batch
     batch_size = args.bs
     val_size = args.bs_v
@@ -123,21 +111,18 @@ def main(args):
 
     # load validation data set
     # VOCdevkit -> VOC2012/2007 -> ImageSets -> Main -> val.txt
-    val_data_set = VOCDataSet(VOC_root, metaclass, data_transform["val"], "val.txt")
-    val_data_set_loader = torch.utils.data.DataLoader(val_data_set,
-                                                      batch_size=val_size,
-                                                      shuffle=False,
-                                                      pin_memory=True,
-                                                      num_workers=nw,
-                                                      collate_fn=train_data_set.collate_fn)
+    # val_data_set = VOCDataSet(VOC_root, metaclass, data_transform["val"], "val.txt")
+    # val_data_set_loader = torch.utils.data.DataLoader(val_data_set,
+    #                                                   batch_size=val_size,
+    #                                                   shuffle=False,
+    #                                                   pin_memory=True,
+    #                                                   num_workers=nw,
+    #                                                   collate_fn=train_data_set.collate_fn)
 
     # construct the input dataset of cpro network
     # meta training use data from voc2007+2012
-    if args.phase == 1:
-        img_set = [('2007', 'trainval'), ('2012', 'trainval')]
+    img_set = [('2007', 'trainval'), ('2012', 'trainval')]
     # meta fine-tune use data from voc2007 only
-    else:
-        img_set = [('2007', 'trainval')]
     metadataset = MetaDataset(VOC_root, img_set, metaclass,
                                     shots=shots, shuffle=True)
     metaloader = torch.utils.data.DataLoader(metadataset, batch_size=1,
@@ -366,13 +351,13 @@ if __name__ == "__main__":
         description=__doc__)
 
     # 训练设备类型
-    parser.add_argument('--device', default='cuda:2', help='device')
+    parser.add_argument('--device', default='cuda:0', help='device')
     # 训练数据集的根目录(VOCdevkit)
     parser.add_argument('--data_path', default='/home/user/ws/FSDet/data', help='dataset')
     # 文件保存地址
     parser.add_argument('--output_dir', default='./find_weights', help='path where to save')
     # 若需要接着上次训练，则指定上次训练保存权重文件地址
-    parser.add_argument('--resume', default='./find_weights/mobile-find-19.pth', type=str, help='resume from checkpoint')
+    parser.add_argument('--resume', default='', type=str, help='resume from checkpoint')
     # 指定接着从哪个epoch数开始训练
     parser.add_argument('--start_epoch', default=0, type=int, help='start epoch')
     # 训练的总epoch数
@@ -403,6 +388,8 @@ if __name__ == "__main__":
         help="Only test the model",
         action="store_true",
     )
+    parser.add_argument('--debug', default=False, action="store_true",
+                        help='number of distributed processes')
     # metadata batch size
     parser.add_argument('--metabs', default=4, type=int, metavar='N',
                         help='batch size when training.')

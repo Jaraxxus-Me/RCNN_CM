@@ -80,49 +80,32 @@ def main(args):
         raise FileNotFoundError("VOCdevkit dose not in path:'{}'.".format(VOC_root))
 
     # load dataset
-    if args.phase == 1:
-        # First phase only use the base classes, each class has 200 class data
-        shots = 200
-        
-        if args.meta_type == 1:
-            args.train_txt = "voc_2007_train_first_split+voc_2012_train_first_split"
-            metaclass = cfg.TRAIN.BASECLASSES_FIRST
-            allclass = cfg.TRAIN.ALLCLASSES_FIRST
-        elif args.meta_type == 2:
-            args.train_txt = "voc_2007_train_second_split+voc_2012_train_second_split"
-            metaclass = cfg.TRAIN.BASECLASSES_SECOND
-            allclass = cfg.TRAIN.ALLCLASSES_SECOND
-        elif args.meta_type == 3:
-            args.train_txt = "voc_2007_train_third_split+voc_2012_train_third_split"
-            metaclass = cfg.TRAIN.BASECLASSES_THIRD
-            allclass = cfg.TRAIN.ALLCLASSES_THIRD
-    else:
-        # Second phase only use fewshot number of base and novel classes
-        shots = args.shots
-        if args.meta_type == 1:  #  use the first sets of all classes
-            metaclass = cfg.TRAIN.ALLCLASSES_FIRST
-            args.train_txt = "voc_2007_train_first"
-        if args.meta_type == 2:  #  use the second sets of all classes
-            metaclass = cfg.TRAIN.ALLCLASSES_SECOND
-            args.train_txt = "voc_2007_train_second"
-        if args.meta_type == 3:  #  use the third sets of all classes
-            metaclass = cfg.TRAIN.ALLCLASSES_THIRD
-            args.train_txt = "voc_2007_train_third"
+    # First phase only use the base classes, each class has 200 class data
+    shots = 200
+    if args.debug:
+        shots = 1
+    if args.meta_type == 1:
+        args.train_txt = "voc_2007_train_first_split+voc_2012_train_first_split"
+        metaclass = cfg.TRAIN.BASECLASSES_FIRST
+        allclass = cfg.TRAIN.ALLCLASSES_FIRST
+    elif args.meta_type == 2:
+        args.train_txt = "voc_2007_train_second_split+voc_2012_train_second_split"
+        metaclass = cfg.TRAIN.BASECLASSES_SECOND
+        allclass = cfg.TRAIN.ALLCLASSES_SECOND
+    elif args.meta_type == 3:
+        args.train_txt = "voc_2007_train_third_split+voc_2012_train_third_split"
+        metaclass = cfg.TRAIN.BASECLASSES_THIRD
+        allclass = cfg.TRAIN.ALLCLASSES_THIRD
 
         # load train data set
     # VOCdevkit -> VOC2012/VOC2007 -> ImageSets -> Main -> train.txt
     # new dataset, combine VOC2012/VOC2017, train.txt, 8218 images
-    train_data_set = VOCDataSet(VOC_root, metaclass, data_transform["train"], args.train_txt)
-    # load validation data set
-    # VOCdevkit -> VOC2012/2007 -> ImageSets -> Main -> val.txt
-    val_data_set = VOCDataSet(VOC_root, metaclass, data_transform["val"], "val.txt")
+    train_data_set = VOCDataSet(VOC_root, metaclass, data_transform["train"], args.train_txt, args.debug)
     print("Creating data loaders")
     if args.distributed:
         train_sampler = torch.utils.data.distributed.DistributedSampler(train_data_set)
-        test_sampler = torch.utils.data.distributed.DistributedSampler(val_data_set)
     else:
         train_sampler = torch.utils.data.RandomSampler(train_data_set)
-        test_sampler = torch.utils.data.SequentialSampler(val_data_set)
     
     if args.aspect_ratio_group_factor >= 0:
         # 统计所有图像比例在bins区间中的位置索引
@@ -136,18 +119,10 @@ def main(args):
         train_data_set, batch_sampler=train_batch_sampler, num_workers=args.workers,
         collate_fn=train_data_set.collate_fn)
 
-    data_loader_test = torch.utils.data.DataLoader(
-        val_data_set, batch_size=1,
-        sampler=test_sampler, num_workers=args.workers,
-        collate_fn=train_data_set.collate_fn)
-
     # construct the input dataset of cpro network
     # meta training use data from voc2007+2012
-    if args.phase == 1:
-        img_set = [('2007', 'trainval'), ('2012', 'trainval')]
+    img_set = [('2007', 'trainval'), ('2012', 'trainval')]
     # meta fine-tune use data from voc2007 only
-    else:
-        img_set = [('2007', 'trainval')]
     metadataset = MetaDataset(VOC_root, img_set, metaclass,
                                     shots=shots, shuffle=True)
     metaloader = torch.utils.data.DataLoader(metadataset, batch_size=1,
@@ -193,18 +168,6 @@ def main(args):
             # update the learning rate
             lr_scheduler.step()
 
-            # evaluate on the test dataset
-            coco_info = utils.evaluate(model, data_loader_test, metaloader, 2, device=device)
-
-            # write into txt
-            with open(results_file, "a") as f:
-                # 写入的数据包括coco指标还有loss和learning rate
-                result_info = [str(round(i, 4)) for i in coco_info + [mean_loss.item()]] + [str(round(lr, 6))]
-                txt = "epoch:{} {}".format(epoch, '  '.join(result_info))
-                f.write(txt + "\n")
-
-            val_map.append(coco_info[1])  # pascal mAP
-
             # save weights
             # 仅保存最后10个epoch的权重
             if epoch >= 4:
@@ -226,9 +189,9 @@ def main(args):
         params = []
         for key, value in dict(model_without_ddp.named_parameters()).items():
             if value.requires_grad:
-                if 'roi_heads.simi_head' in key:
-                    params += [{'params': [value], 'lr': 0.005}]
-                else:
+                # if 'roi_heads.simi_head' in key:
+                #     params += [{'params': [value], 'lr': 0.002}]
+                # else:
                     params += [{'params': [value]}]
         # params = [p for p in model.parameters() if p.requires_grad]
         optimizer = torch.optim.SGD(
@@ -242,11 +205,11 @@ def main(args):
                     train_sampler.set_epoch(epoch)
                 # train for one epoch, printing every 10 iterations
                 mean_loss, lr = utils.train_one_epoch(model, optimizer, data_loader, metaloader,
-                                                device, epoch, print_freq=50, metabs=args.metabs, warmup=True)
+                                                device, epoch, print_freq=10, metabs=args.metabs, warmup=True)
                 train_loss.append(mean_loss.item())
                 learning_rate.append(lr)
-
-            torch.save(model.state_dict(), "{}/pretrain.pth".format(args.output_dir))
+            if not args.debug:
+                torch.save(model.state_dict(), "{}/pretrain.pth".format(args.output_dir))
 
         # # # # # # # # # # # # # # # # # # # # # # # # # # # #
         #  second unfrozen backbone and train all network     #
@@ -265,9 +228,9 @@ def main(args):
         params = []
         for key, value in dict(model_without_ddp.named_parameters()).items():
             if value.requires_grad:
-                if 'roi_heads.simi_head' in key:
-                    params += [{'params': [value], 'lr': 0.002}]
-                else:
+                # if 'roi_heads.simi_head' in key:
+                #     params += [{'params': [value], 'lr': 0.003}]
+                # else:
                     params += [{'params': [value]}]
         # params = [p for p in model.parameters() if p.requires_grad]
         optimizer = torch.optim.SGD(
@@ -289,46 +252,27 @@ def main(args):
                 train_sampler.set_epoch(epoch)
             # train for one epoch, printing every 50 iterations
             mean_loss, lr = utils.train_one_epoch(model, optimizer, data_loader, metaloader,
-                                            device, epoch, print_freq=50, metabs=args.metabs)
+                                            device, epoch, print_freq=10, metabs=args.metabs)
             train_loss.append(mean_loss.item())
             learning_rate.append(lr)
 
             # update the learning rate
             lr_scheduler.step()
-            if epoch in range(num_epochs+5)[-5:]:
-                # evaluate on the test dataset
-                coco_info, pro = utils.evaluate(model, data_loader_test, metaloader, 2, device=device)
-                val_map.append(coco_info[1])  # pascal mAP
-
-                # write into txt
-                # 只在主进程上进行写操作
-                if args.rank in [-1, 0]:
-                    # write into txt
-                    with open(results_file, "a") as f:
-                        # 写入的数据包括coco指标还有loss和learning rate
-                        result_info = [str(round(i, 4)) for i in coco_info + [mean_loss.item()]] + [str(round(lr, 6))]
-                        txt = "epoch:{} {}".format(epoch, '  '.join(result_info))
-                        f.write(txt + "\n")
-
-            # save weights
-            save_files = {
-                'model': model.state_dict(),
-                'optimizer': optimizer.state_dict(),
-                'lr_scheduler': lr_scheduler.state_dict(),
-                'args': args,
-                'epoch': epoch}
-            save_on_master(save_files, "{}/mobile-find-{}.pth".format(args.output_dir, epoch))
+            if not args.debug:
+                # save weights
+                save_files = {
+                    'model': model.state_dict(),
+                    'optimizer': optimizer.state_dict(),
+                    'lr_scheduler': lr_scheduler.state_dict(),
+                    'args': args,
+                    'epoch': epoch}
+                save_on_master(save_files, "{}/mobile-find-{}.pth".format(args.output_dir, epoch))
     
     if args.rank in [-1, 0]:
         # plot loss and lr curve
         if len(train_loss) != 0 and len(learning_rate) != 0:
             from plot_curve import plot_loss_and_lr
             plot_loss_and_lr(train_loss, learning_rate)
-
-        # plot mAP curve
-        if len(val_map) != 0:
-            from plot_curve import plot_map
-            plot_map(val_map)
 
 
 if __name__ == "__main__":
@@ -348,23 +292,14 @@ if __name__ == "__main__":
     # 指定接着从哪个epoch数开始训练
     parser.add_argument('--start_epoch', default=0, type=int, help='start epoch')
     # 训练的总epoch数
-    parser.add_argument('--epochs', default=20, type=int, metavar='N',
+    parser.add_argument('--epochs', default=30, type=int, metavar='N',
                         help='number of total epochs to run')
         # 数据加载以及预处理的线程数
     parser.add_argument('-j', '--workers', default=4, type=int, metavar='N',
                         help='number of data loading workers (default: 4)')
-    # traing phase (1/2)
-    parser.add_argument('--phase', default=1, type=int,
-                        help='which phase of meta learning, 1: meta train, 2: meta fine tune')
     # split (1/2/3)
     parser.add_argument('--meta_type', default=1, type=int,
                         help='which split of VOC to implement, 1, 2, or 3')
-    # shots
-    parser.add_argument('--shots', default=10, type=int,
-                        help='how many shots in few-shot learning')
-    # shots
-    parser.add_argument('--meta_train', default=True, type=bool,
-                        help='is doing meta training/fine tuning?')
     # 每块GPU上的batch_size
     parser.add_argument('-b', '--batch-size', default=2, type=int,
                         help='images per gpu, the total batch size is $NGPU x batch_size')
@@ -372,7 +307,7 @@ if __name__ == "__main__":
     parser.add_argument('--bs_v', default=2, type=int, metavar='N',
                         help='batch size when training.')
     # metadata batch size
-    parser.add_argument('--metabs', default=6, type=int, metavar='N',
+    parser.add_argument('--metabs', default=8, type=int, metavar='N',
                         help='batch size when training.')
     # weight of cls loss during training
     # 学习率，这个需要根据gpu的数量以及batch_size进行设置0.02 / 8 * num_GPU
@@ -394,6 +329,8 @@ if __name__ == "__main__":
     parser.add_argument('--aspect-ratio-group-factor', default=-1, type=int)
         # 开启的进程数(注意不是线程)
     parser.add_argument('--world-size', default=4, type=int,
+                        help='number of distributed processes')
+    parser.add_argument('--debug', default=False, action="store_true",
                         help='number of distributed processes')
     parser.add_argument('--dist-url', default='env://', help='url used to set up distributed training')
 

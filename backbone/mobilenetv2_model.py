@@ -61,7 +61,7 @@ class InvertedResidual(nn.Module):
 
 
 class MobileNetV2(nn.Module):
-    def __init__(self, num_classes=1000, alpha=1.0, round_nearest=8, weights_path=None, norm_layer=None):
+    def __init__(self, num_classes=1000, alpha=1.0, round_nearest=8, weights_path=None, norm_layer=None, device = None):
         super(MobileNetV2, self).__init__()
         block = InvertedResidual
         input_channel = _make_divisible(32 * alpha, round_nearest)
@@ -117,8 +117,10 @@ class MobileNetV2(nn.Module):
                     nn.init.normal_(m.weight, 0, 0.01)
                     nn.init.zeros_(m.bias)
         else:
-            self.load_state_dict(torch.load(weights_path))
-
+            if device!=None:
+                self.load_state_dict(torch.load(weights_path, map_location=device))
+            else:
+                self.load_state_dict(torch.load(weights_path))
     def forward(self, x):
         x = self.features(x)
         x = self.avgpool(x)

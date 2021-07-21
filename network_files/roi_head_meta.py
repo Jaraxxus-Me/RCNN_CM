@@ -30,7 +30,9 @@ def fastrcnn_loss(class_logits, box_regression, labels, meta_label, regression_t
     # labels filter
     labels = torch.cat(labels, dim=0)
     meta_label = torch.cat(meta_label, dim=0)
-    proper_ind=[True if (la in meta_label or la==0) else False for la in labels]
+    meta_label = torch.cat(((Tensor([0]).to(meta_label.device).to(meta_label.dtype)), meta_label), dim=0)
+    proper_ind = torch.any(labels.view(-1,1)==meta_label.view(1,-1),dim=1)
+
     # filter proposals in logits
     class_logits_=class_logits[proper_ind]
     labels_=labels[proper_ind]
@@ -41,11 +43,8 @@ def fastrcnn_loss(class_logits, box_regression, labels, meta_label, regression_t
     # 计算Linear类别损失信息
     bg_logits = torch.mean(class_logits_[:,:,0], dim=1)
     class_logits_ = torch.cat((bg_logits.unsqueeze(1), class_logits_[:,:,1]), dim=1)
-    meta_dict = {int(meta_label[i]):(i+1) for i in range(len(meta_label))}
-    meta_dict[0]=0
-    # remap label_ to cos_label
-    map_label = [meta_dict[int(c)] for c in labels_]
-    map_label = Tensor(map_label).to(labels_.device).to(labels_.dtype)
+    # remap label_ to meta_label_
+    map_label = (labels_.view(-1,1)==meta_label.view(1,-1)).nonzero(as_tuple=True)[1]
     # calculate cls loss
     classification_loss = focal_loss(class_logits_, map_label)
     # should be impossible
@@ -115,7 +114,7 @@ class RoIHeads(torch.nn.Module):
         self.box_head_r = box_head["reg"]            # TwoMLPHead
         self.box_head_c = box_head["cls"]
         self.box_predictor = box_predictor  # FastRCNNPredictor
-        self.focal_loss = FocalLoss(gamma=2)
+        self.focal_loss = FocalLoss(gamma=1.5)
 
         self.score_thresh = score_thresh  # default: 0.05
         self.nms_thresh = nms_thresh      # default: 0.5

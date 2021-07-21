@@ -233,6 +233,12 @@ if __name__ == "__main__":
         help="Only test the model",
         action="store_true",
     )
+    parser.add_argument(
+        "--debug",
+        dest="debug",
+        help="Only debug the model",
+        action="store_true",
+    )
 
     # 开启的进程数(注意不是线程)
     parser.add_argument('--world-size', default=4, type=int,

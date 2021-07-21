@@ -433,7 +433,7 @@ class Find(MetaRCNNBase):
                 representation_size,
                 phase)
 
-        simi_head = SimiHeads(out_channels)
+        simi_head = SimiHeads(resolution)
         # 将roi pooling, box_head以及box_predictor结合在一起
         roi_heads = RoIHeads(
             # box

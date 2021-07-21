@@ -199,10 +199,13 @@ def main(parser_data):
     model = create_model(2)
 
     # 载入你自己训练好的模型权重
-    if parser_data.dataset=="coco":
-        weights_path = os.path.join(parser_data.resume_dir,"mob-find-{}-type{}-{}shots.pth".format(parser_data.epoch, parser_data.meta_type, parser_data.shots))
+    if args.finetuned:
+        if parser_data.dataset=="coco":
+            weights_path = os.path.join(parser_data.resume_dir,"mob-find-{}-type{}-{}shots.pth".format(parser_data.epoch, parser_data.meta_type, parser_data.shots))
+        else:
+            weights_path = os.path.join(parser_data.resume_dir,"mob-find-{}-type{}-{}shots.pth".format(parser_data.epoch, parser_data.dataset[-1], parser_data.shots))
     else:
-        weights_path = os.path.join(parser_data.resume_dir,"mob-find-{}-type{}-{}shots.pth".format(parser_data.epoch, parser_data.dataset[-1], parser_data.shots))
+        weights_path = os.path.join("./find_weights","mobile-find-20.pth")
     # weights_path = os.path.join(parser_data.resume_dir,"mobile-find-20.pth")
     print("Loading trained model from {}".format(weights_path))
     assert os.path.exists(weights_path), "not found {} file.".format(weights_path)
@@ -257,6 +260,8 @@ def main(parser_data):
 
     print_voc = "\n".join(voc_map_info_list)
     print(print_voc)
+    if not args.finetuned:
+        parser_data.epoch=weights_dict['epoch']
     if parser_data.dataset=="coco":
         model_name="mob-model-{}-type{}-{}shots.pth".format(parser_data.epoch, parser_data.meta_type, parser_data.shots)[:-4]
     else:
@@ -285,6 +290,7 @@ if __name__ == "__main__":
     parser.add_argument('--data_path', default='/data/', help='dataset root')
     # 若需要接着上次训练，则指定上次训练保存权重文件地址
     parser.add_argument('--resume_dir', default='./fine_find_weight/', type=str, help='resume from checkpoint')
+    parser.add_argument('--finetuned', default=False, help='if finetuned?')
     # split (1/2/3)
     parser.add_argument('--meta_type', default=1, type=int,
                         help='which split of VOC to implement, 1, 2, or 3')

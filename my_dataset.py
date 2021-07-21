@@ -184,7 +184,7 @@ class VOC2007DataSet(Dataset):
 class VOCDataSet(Dataset):
     """读取解析PASCAL VOC2012数据集"""
 
-    def __init__(self, voc_root, allclass, transforms, txt_name: str):
+    def __init__(self, voc_root, allclass, transforms, txt_name: str, debug: bool):
         self.root=os.path.join(voc_root, "VOCdevkit")
         self.root_12 = os.path.join(voc_root, "VOCdevkit", "VOC2012")
         self.root_07 = os.path.join(voc_root, "VOCdevkit", "VOC2007")
@@ -228,7 +228,8 @@ class VOCDataSet(Dataset):
         self.t_t = ToTensor()
         self.transforms = transforms
         li = self.xml_list_07+self.xml_list_12
-        # li = li[0:100]
+        if debug:
+            li = li[0:200]
         self.filer_data(li)
         if "val" in txt_name:
             self.prepare_data(self.xml_list, False)

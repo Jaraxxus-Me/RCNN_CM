@@ -94,7 +94,7 @@ def train_one_epoch(model, optimizer, data_loader, meta_loader, device, epoch,
 
 
 @torch.no_grad()
-def evaluate(model, data_loader, meta_loader, phase, device):
+def evaluate(model, data_loader, meta_loader, finetune, device):
     n_threads = torch.get_num_threads()
     # FIXME remove this and make paste_masks_in_image run on the GPU
     torch.set_num_threads(1)
@@ -130,6 +130,8 @@ def evaluate(model, data_loader, meta_loader, phase, device):
             class_proto = model([prnims],[prntar],get_pro=True)
             created = True
             print("done!")
+            if finetune==False:
+                return class_proto
         model_time = time.time()
         # offering the model test images and class prototypes
         outputs = model(images, class_prototype = class_proto)

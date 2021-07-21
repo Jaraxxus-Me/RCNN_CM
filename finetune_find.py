@@ -198,16 +198,19 @@ def main(args):
 
     for epoch in range(args.start_epoch, args.epochs, 1):
         # train for one epoch, printing every 50 iterations
-        mean_loss, lr = utils.train_one_epoch(model, optimizer, train_data_loader, metaloader,
-                                              device, epoch, print_freq=50,cls_w=args.cls, metabs=args.metabs)
-        train_loss.append(mean_loss.item())
-        learning_rate.append(lr)
+        # mean_loss, lr = utils.train_one_epoch(model, optimizer, train_data_loader, metaloader,
+        #                                       device, epoch, print_freq=50,cls_w=args.cls, metabs=args.metabs)
+        # train_loss.append(mean_loss.item())
+        # learning_rate.append(lr)
 
-        # update the learning rate
-        lr_scheduler.step()
+        # # update the learning rate
+        # lr_scheduler.step()
         if epoch == range(args.epochs)[-1]:
         # evaluate on the test dataset of last 2 epochs
-            coco_info, class_proto_dict = utils.evaluate(model, val_data_set_loader, metaloader, 2, device=device)
+            if args.finetune:
+                coco_info, class_proto_dict = utils.evaluate(model, val_data_set_loader, metaloader, args.finetune, device=device)
+            else:
+                class_proto_dict = utils.evaluate(model, val_data_set_loader, metaloader, args.finetune, device=device)
             
             if (class_proto_dict != None) and (epoch == range(args.epochs)[-1]):
                 # save class_prototype for test:
@@ -265,8 +268,8 @@ if __name__ == "__main__":
     # 训练设备类型
     parser.add_argument('--device', default='cuda:1', help='device')
     # 训练数据集的根目录(VOCdevkit)
-    parser.add_argument('--dataset', default='subt_a', help='dataset:coo or subt')
-    parser.add_argument('--data_path', default='/media/li/H/CMU_DataSet/SUBT', help='dataset')
+    parser.add_argument('--dataset', default='coco', help='dataset:coo or subt')
+    parser.add_argument('--data_path', default='/home/user/ws/dataset/coco', help='dataset')
     # 文件保存地址
     parser.add_argument('--output_dir', default='./fine_find_weight/', help='path where to save')
     # 若需要接着上次训练，则指定上次训练保存权重文件地址
@@ -280,10 +283,13 @@ if __name__ == "__main__":
     parser.add_argument('--meta_type', default=1, type=int,
                         help='which split of CoCo to implement, 1(a), 2(b), or 3(c)')
     # shots
-    parser.add_argument('--shots', default=3, type=int,
+    parser.add_argument('--shots', default=1, type=int,
                         help='how many shots in few-shot learning')
+                            # shots
+    parser.add_argument('--finetune', default=False,
+                        help='if finetune?')
     # 训练的batch size
-    parser.add_argument('--bs', default=2, type=int, metavar='N',
+    parser.add_argument('--bs', default=4, type=int, metavar='N',
                         help='batch size when training.')
     # validation batch size
     parser.add_argument('--bs_v', default=2, type=int, metavar='N',
