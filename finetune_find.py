@@ -160,18 +160,17 @@ def main(args):
     model.to(device)
     new_state_dict = model.state_dict()
     print("loading checkpoint %s" % (args.resume))
-    checkpoint = torch.load(args.resume)
-
-    # save original trained weights of linear layers, expand the matrix dimension
-    # for name in checkpoint['model']:
-    #     if ("roi_heads.box_predictor.cls_score" in name) or ("roi_heads.box_predictor.bbox_pred" in name):
-    #         init_weight=new_state_dict[name]
-    #         # init_weight[:checkpoint['model'][name].size()[0]] = checkpoint['model'][name]
-    #         # delete cls and reg last layer
-    #         checkpoint['model'][name] = init_weight
-    # load params to model
-    new_state_dict.update(checkpoint['model'])
-    model.load_state_dict(new_state_dict)
+    checkpoint = torch.load(args.resume, map_location=device)
+    try:
+        model.load_state_dict(checkpoint['model'])
+    except RuntimeError:
+        print("loading multi gpu model")
+        init_weight=OrderedDict()
+        for name in checkpoint['model']:
+            init_weight[name[7:]]=checkpoint['model'][name]
+            # init_weight[:checkpoint['model'][name].size()[0]] = checkpoint['model'][name]
+            # delete cls and reg last layer
+        model.load_state_dict(init_weight)
     
     # unfreeze weights of the last layers, others freeze
     for name, parameter in model.named_parameters():
@@ -198,13 +197,14 @@ def main(args):
 
     for epoch in range(args.start_epoch, args.epochs, 1):
         # train for one epoch, printing every 50 iterations
-        # mean_loss, lr = utils.train_one_epoch(model, optimizer, train_data_loader, metaloader,
-        #                                       device, epoch, print_freq=50,cls_w=args.cls, metabs=args.metabs)
-        # train_loss.append(mean_loss.item())
-        # learning_rate.append(lr)
+        if args.finetune:
+            mean_loss, lr = utils.train_one_epoch(model, optimizer, train_data_loader, metaloader,
+                                                device, epoch, print_freq=50,cls_w=args.cls, metabs=args.metabs)
+            train_loss.append(mean_loss.item())
+            learning_rate.append(lr)
 
-        # # update the learning rate
-        # lr_scheduler.step()
+            # update the learning rate
+            lr_scheduler.step()
         if epoch == range(args.epochs)[-1]:
         # evaluate on the test dataset of last 2 epochs
             if args.finetune:
@@ -225,6 +225,8 @@ def main(args):
                                     str(epoch) + '_shots_' + str(shots) + '_mean_class_attentions.pkl'), 'wb') as f:
                     pickle.dump(class_proto_dict, f, pickle.HIGHEST_PROTOCOL)
                 print('save ' + str(args.shots) + ' mean classes attentions done!')
+                if not args.finetune:
+                    return
 
             # write into txt
             with open(results_file, "a") as f:
@@ -273,7 +275,7 @@ if __name__ == "__main__":
     # 文件保存地址
     parser.add_argument('--output_dir', default='./fine_find_weight/', help='path where to save')
     # 若需要接着上次训练，则指定上次训练保存权重文件地址
-    parser.add_argument('--resume', default='./find_weights/mobile-find-20.pth', type=str, help='resume from checkpoint')
+    parser.add_argument('--resume', default='./find_weights/mobile-find-34.pth', type=str, help='resume from checkpoint')
     # 指定接着从哪个epoch数开始训练
     parser.add_argument('--start_epoch', default=0, type=int, help='start epoch')
     # 训练的总epoch数
@@ -286,7 +288,7 @@ if __name__ == "__main__":
     parser.add_argument('--shots', default=1, type=int,
                         help='how many shots in few-shot learning')
                             # shots
-    parser.add_argument('--finetune', default=False,
+    parser.add_argument('--finetune', default=False, action="store_true",
                         help='if finetune?')
     # 训练的batch size
     parser.add_argument('--bs', default=4, type=int, metavar='N',

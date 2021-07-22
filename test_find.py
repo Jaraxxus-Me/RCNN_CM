@@ -205,12 +205,21 @@ def main(parser_data):
         else:
             weights_path = os.path.join(parser_data.resume_dir,"mob-find-{}-type{}-{}shots.pth".format(parser_data.epoch, parser_data.dataset[-1], parser_data.shots))
     else:
-        weights_path = os.path.join("./find_weights","mobile-find-20.pth")
+        weights_path = os.path.join("./find_weights","mobile-find-34.pth")
     # weights_path = os.path.join(parser_data.resume_dir,"mobile-find-20.pth")
     print("Loading trained model from {}".format(weights_path))
     assert os.path.exists(weights_path), "not found {} file.".format(weights_path)
     weights_dict = torch.load(weights_path, map_location=device)
-    model.load_state_dict(weights_dict['model'])
+    try:
+        model.load_state_dict(weights_dict['model'])
+    except RuntimeError:
+        print("loading multi gpu model")
+        init_weight=OrderedDict()
+        for name in weights_dict['model']:
+            init_weight[name[7:]]=weights_dict['model'][name]
+            # init_weight[:checkpoint['model'][name].size()[0]] = checkpoint['model'][name]
+            # delete cls and reg last layer
+        model.load_state_dict(init_weight)
     # load class prototype
     if parser_data.dataset=="coco":
         pkl_save_path = os.path.join(parser_data.resume_dir, 'meta_type_{}'.format(parser_data.meta_type))
